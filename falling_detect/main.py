@@ -32,6 +32,7 @@ import os
 current_dir = os.path.dirname(os.path.abspath(__file__))
 config_path = os.path.join(current_dir, 'config.yaml')
 with open(config_path, 'r', encoding='utf-8') as file:
+    config = yaml.safe_load(file)  # ← 缩进 4 个空格
 
 # ========== 创建认证器 ==========
 authenticator = stauth.Authenticate(
