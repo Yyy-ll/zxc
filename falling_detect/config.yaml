@@ -1,0 +1,21 @@
+cookie:
+  expiry_days: 7
+  key: 8f4a3b2c1d9e7f6a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d9e7f6a5b4c3d2e1f0a
+  name: yinling_anjia_cookie
+credentials:
+  usernames:
+    father_zhang:
+      email: zhang@example.com
+      first_name: 张
+      last_name: 建国
+      password: '123456'  # 用引号括起来
+    mother_li:
+      email: li@example.com
+      first_name: 李
+      last_name: 秀英
+      password: '123456'  # 用引号括起来
+    admin:
+      email: zhang@example.com
+      first_name: 张
+      last_name: 辉
+      password: 'hui123'  # 用引号括起来

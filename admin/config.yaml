@@ -1,0 +1,20 @@
+# admin/config.yaml
+credentials:
+  usernames:
+    admin:
+      email: admin@example.com
+      first_name: 系统
+      last_name: 管理员
+      password: 'admin123'
+
+cookie:
+  name: admin_auth_cookie
+  key: admin_secret_key_2026_8f4a3b2c1d9e7f6a5b4c3d2e1f0a9b8c
+  expiry_days: 7
+
+database:
+  host: localhost
+  port: 3306
+  user: root
+  password: 'Zxc123654'
+  database: silver_home

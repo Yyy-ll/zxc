@@ -1,0 +1,5 @@
+# admin/requirements.txt
+streamlit>=1.28.0
+pyyaml>=6.0
+pymysql>=1.0.0
+pandas>=1.5.0

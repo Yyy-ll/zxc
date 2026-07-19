@@ -1,0 +1,3 @@
+# admin/.streamlit/config.toml
+[server]
+port = 8502
