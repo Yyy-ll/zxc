@@ -28,8 +28,10 @@ st.set_page_config(
 )
 
 # ========== 加载用户配置 ==========
-with open('config.yaml', 'r', encoding='utf-8') as file:
-    config = yaml.load(file, Loader=SafeLoader)
+import os
+current_dir = os.path.dirname(os.path.abspath(__file__))
+config_path = os.path.join(current_dir, 'config.yaml')
+with open(config_path, 'r', encoding='utf-8') as file:
 
 # ========== 创建认证器 ==========
 authenticator = stauth.Authenticate(
