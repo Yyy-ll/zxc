@@ -7,7 +7,7 @@ def save_feedback(username, event_time, feedback_type, description):
     """保存用户反馈"""
     sql = """
         INSERT INTO feedback (username, event_time, feedback_type, description, status, created_at)
-        VALUES (%s, %s, %s, %s, '待处理', NOW())
+        VALUES (?, ?, ?, ?, '待处理', CURRENT_TIMESTAMP)
     """
     return execute_insert(sql, (username, event_time, feedback_type, description))
 
@@ -18,10 +18,10 @@ def get_feedback_list(status=None, limit=50, offset=0):
     params = []
 
     if status:
-        sql += " WHERE status = %s"
+        sql += " WHERE status = ?"
         params.append(status)
 
-    sql += " ORDER BY created_at DESC LIMIT %s OFFSET %s"
+    sql += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
     params.extend([limit, offset])
 
     return execute_query(sql, params)
@@ -29,7 +29,7 @@ def get_feedback_list(status=None, limit=50, offset=0):
 
 def get_feedback_by_id(feedback_id):
     """获取单个反馈详情"""
-    sql = "SELECT * FROM feedback WHERE id = %s"
+    sql = "SELECT * FROM feedback WHERE id = ?"
     result = execute_query(sql, (feedback_id,))
     return result[0] if result else None
 
@@ -38,11 +38,11 @@ def update_feedback_status(feedback_id, status, handled_by=None, notes=None):
     """更新反馈状态"""
     sql = """
         UPDATE feedback 
-        SET status = %s, 
-            handled_by = %s, 
-            handled_at = NOW(),
-            notes = %s
-        WHERE id = %s
+        SET status = ?, 
+            handled_by = ?, 
+            handled_at = CURRENT_TIMESTAMP,
+            notes = ?
+        WHERE id = ?
     """
     return execute_update(sql, (status, handled_by, notes, feedback_id))
 
@@ -67,11 +67,11 @@ def search_feedback(keyword, limit=50):
     """搜索反馈"""
     sql = """
         SELECT * FROM feedback 
-        WHERE description LIKE %s 
-           OR username LIKE %s
-           OR feedback_type LIKE %s
+        WHERE description LIKE ? 
+           OR username LIKE ?
+           OR feedback_type LIKE ?
         ORDER BY created_at DESC
-        LIMIT %s
+        LIMIT ?
     """
     keyword_pattern = f"%{keyword}%"
     return execute_query(sql, (keyword_pattern, keyword_pattern, keyword_pattern, limit))

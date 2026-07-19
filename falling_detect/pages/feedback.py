@@ -435,8 +435,8 @@ def main():
 
         <script>
             const INITIAL_DATA = {initial_data_json};
-            const API_BASE = 'http://localhost:8001';
-            const WS_URL = 'ws://localhost:8766';
+            const API_BASE = window.location.origin;
+            const WS_URL = 'wss://' + window.location.host + '/ws';
 
             let allFeedbacks = INITIAL_DATA.all || [];
             let userFeedbacks = INITIAL_DATA.user || [];

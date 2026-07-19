@@ -1,52 +1,86 @@
 # utils/database.py
-import pymysql
+import sqlite3
+from pathlib import Path
 import streamlit as st
-from contextlib import contextmanager
-import os
 
-# ===== 使用您的密码 =====
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': 3306,
-    'user': 'root',
-    'password': 'Zxc123654',  # ← 改成您的密码
-    'database': 'silver_home',
-    'charset': 'utf8mb4'
-}
+# 数据库文件路径（在 falling_detect 目录下）
+DB_PATH = Path(__file__).parent.parent / "falling_detect.db"
 
-@contextmanager
+
 def get_db_connection():
-    """获取数据库连接（使用上下文管理器）"""
-    conn = None
-    try:
-        conn = pymysql.connect(**DB_CONFIG)
-        yield conn
-    except Exception as e:
-        st.error(f"❌ 数据库连接失败: {e}")
-        raise
-    finally:
-        if conn:
-            conn.close()
+    """获取 SQLite 数据库连接"""
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    return conn
+
 
 def execute_query(sql, params=None):
-    """执行查询并返回结果"""
+    """执行查询并返回结果列表（每行是字典）"""
     with get_db_connection() as conn:
-        with conn.cursor(pymysql.cursors.DictCursor) as cursor:
+        cursor = conn.cursor()
+        if params:
             cursor.execute(sql, params)
-            return cursor.fetchall()
+        else:
+            cursor.execute(sql)
+        rows = cursor.fetchall()
+        return [dict(row) for row in rows]
+
 
 def execute_update(sql, params=None):
-    """执行更新操作"""
+    """执行更新/插入/删除，返回影响行数"""
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
+        cursor = conn.cursor()
+        if params:
             cursor.execute(sql, params)
-            conn.commit()
-            return cursor.rowcount
+        else:
+            cursor.execute(sql)
+        conn.commit()
+        return cursor.rowcount
+
 
 def execute_insert(sql, params=None):
-    """执行插入操作并返回插入ID"""
+    """执行插入，返回最后插入的 ID"""
     with get_db_connection() as conn:
-        with conn.cursor() as cursor:
+        cursor = conn.cursor()
+        if params:
             cursor.execute(sql, params)
-            conn.commit()
-            return cursor.lastrowid
+        else:
+            cursor.execute(sql)
+        conn.commit()
+        return cursor.lastrowid
+
+
+def init_database():
+    """初始化数据库：创建所有表"""
+    with get_db_connection() as conn:
+        cursor = conn.cursor()
+
+        # 反馈表
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username TEXT,
+                event_time TEXT,
+                feedback_type TEXT,
+                description TEXT,
+                status TEXT DEFAULT '待处理',
+                notes TEXT,
+                handled_by TEXT,
+                handled_at TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # 告警事件表（用于 risk.py, history.py, health.py, trend.py）
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_type TEXT,
+                level TEXT,
+                timestamp TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        conn.commit()
+        print("✅ SQLite 数据库初始化完成")

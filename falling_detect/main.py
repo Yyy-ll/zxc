@@ -7,6 +7,7 @@ from yaml.loader import SafeLoader
 import streamlit_authenticator as stauth
 from utils.auth import get_current_user
 from pathlib import Path
+from utils.database import init_database
 
 # ========== 提供 Service Worker 文件 ==========
 static_dir = Path("static")
@@ -26,6 +27,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+init_database()
 
 # ========== 加载用户配置 ==========
 import os
@@ -55,12 +58,9 @@ def get_image_base64(path):
         return None
 
 
-logo_paths = ["图片1.png", "assets/图片1.png"]
-logo_base64 = None
-for path in logo_paths:
-    if os.path.exists(path):
-        logo_base64 = get_image_base64(path)
-        break
+current_dir = Path(__file__).parent
+logo_path = current_dir / "图片1.png"
+logo_base64 = get_image_base64(str(logo_path)) if logo_path.exists() else None
 
 # ========== 检查登录状态 ==========
 auth_status = st.session_state.get('authentication_status')
