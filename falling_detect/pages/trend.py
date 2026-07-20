@@ -100,6 +100,21 @@ def main():
         suggestion = '等待更多数据...'
         current_score = '--'
 
+    # ============================================================
+    # 序列化 trend_data 为 JSON，避免语法错误
+    # ============================================================
+    import json
+
+    trend_data_serializable = []
+    for item in trend_data:
+        trend_data_serializable.append({
+            'date': item['date'],
+            'score': item['score'],
+            'count': item['count']
+        })
+
+    trend_data_json = json.dumps(trend_data_serializable, ensure_ascii=False)
+
     st.components.v1.html(f"""
     <!DOCTYPE html>
     <html>
@@ -264,7 +279,7 @@ def main():
             // 7天风险趋势图
             // ============================================================
 
-            var trendData = {json.dumps(trend_data)};
+            var trendData = {trend_data_json};
 
             function initChart() {{
                 var ctx = document.getElementById('trendChart').getContext('2d');

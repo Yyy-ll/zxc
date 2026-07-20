@@ -85,6 +85,21 @@ def main():
         change = 0
         suggestion = "暂无数据，请等待系统收集更多信息。"
 
+    # ============================================================
+    # 序列化 health_data 为 JSON，避免语法错误
+    # ============================================================
+    import json
+
+    health_data_serializable = []
+    for item in health_data:
+        health_data_serializable.append({
+            'date': item['date'],
+            'index': item['index'],
+            'count': item['count']
+        })
+
+    health_data_json = json.dumps(health_data_serializable, ensure_ascii=False)
+
     st.components.v1.html(f"""
     <!DOCTYPE html>
     <html>
@@ -278,7 +293,7 @@ def main():
             // ============================================================
 
             var healthChart = null;
-            var healthData = {json.dumps(health_data)};
+            var healthData = {health_data_json};
 
             function initChart() {{
                 var ctx = document.getElementById('healthChart').getContext('2d');
