@@ -373,6 +373,108 @@ def main():
             }}
 
             initChart();
+// ============================================================
+// WebSocket 实时更新 - 近7天趋势
+// ============================================================
+
+const WS_URL = 'wss://zxc-production-f99b.up.railway.app/ws/family';
+let ws = null;
+let reconnectTimer = null;
+
+function connectWebSocket() {
+    try {
+        console.log('🔗 Trend 连接 WebSocket...');
+        ws = new WebSocket(WS_URL);
+
+        ws.onopen = function() {
+            console.log('✅ Trend WebSocket 已连接');
+        };
+
+        ws.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'new_alert') {
+                    console.log('📩 Trend 收到新告警，更新数据');
+                    fetchLast7DaysData();
+                }
+            } catch(e) {
+                console.error('解析失败:', e);
+            }
+        };
+
+        ws.onclose = function() {
+            console.log('❌ Trend WebSocket 断开，3秒后重连');
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connectWebSocket, 3000);
+        };
+
+        ws.onerror = function(error) {
+            console.error('WebSocket 错误:', error);
+        };
+
+    } catch(e) {
+        console.error('连接失败:', e);
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connectWebSocket, 5000);
+    }
+}
+
+function fetchLast7DaysData() {
+    fetch('https://zxc-production-f99b.up.railway.app/api/events/last_days/7')
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                const events = data.events || [];
+                console.log('📊 Trend 更新近7天数据，共', events.length, '条');
+                updateTrendChart(events);
+            }
+        })
+        .catch(err => console.error('获取数据失败:', err));
+}
+
+function updateTrendChart(events) {
+    // 按天统计
+    const dayCount = {};
+    events.forEach(e => {
+        let dateKey = '未知';
+        if (e.timestamp) {
+            try {
+                const d = new Date(e.timestamp);
+                dateKey = (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
+            } catch {}
+        }
+        dayCount[dateKey] = (dayCount[dateKey] || 0) + 1;
+    });
+
+    // 生成近7天数据
+    const today = new Date();
+    const labels = [];
+    const scores = [];
+    const counts = [];
+
+    for (let i = 6; i >= 0; i--) {
+        const d = new Date(today);
+        d.setDate(d.getDate() - i);
+        const dateKey = (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
+        labels.push(dateKey);
+        const count = dayCount[dateKey] || 0;
+        counts.push(count);
+        const score = Math.max(0, Math.min(100, count * 8 + Math.floor(Math.random() * 15 - 5)));
+        scores.push(score);
+    }
+
+    // 更新图表
+    if (window.trendChart) {
+        window.trendChart.data.labels = labels;
+        window.trendChart.data.datasets[0].data = scores;
+        window.trendChart.data.datasets[1].data = counts;
+        window.trendChart.update();
+    }
+}
+
+setTimeout(connectWebSocket, 500);
+console.log('🔄 Trend 页面已启动 WebSocket 实时更新');
+
             console.log('🚀 Trend页面 启动完成');
         </script>
     </body>

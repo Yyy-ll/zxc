@@ -479,6 +479,68 @@ def main():
             window.changePageSize = changePageSize;
 
             renderEvents();
+// ============================================================
+// WebSocket 实时更新 - 全部数据
+// ============================================================
+
+const WS_URL = 'wss://zxc-production-f99b.up.railway.app/ws/family';
+let ws = null;
+let reconnectTimer = null;
+
+function connectWebSocket() {
+    try {
+        console.log('🔗 History 连接 WebSocket...');
+        ws = new WebSocket(WS_URL);
+        
+        ws.onopen = function() {
+            console.log('✅ History WebSocket 已连接');
+        };
+        
+        ws.onmessage = function(event) {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'new_alert') {
+                    console.log('📩 History 收到新告警，更新数据');
+                    fetchAllData();
+                }
+            } catch(e) {
+                console.error('解析失败:', e);
+            }
+        };
+        
+        ws.onclose = function() {
+            console.log('❌ History WebSocket 断开，3秒后重连');
+            if (reconnectTimer) clearTimeout(reconnectTimer);
+            reconnectTimer = setTimeout(connectWebSocket, 3000);
+        };
+        
+        ws.onerror = function(error) {
+            console.error('WebSocket 错误:', error);
+        };
+        
+    } catch(e) {
+        console.error('连接失败:', e);
+        if (reconnectTimer) clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(connectWebSocket, 5000);
+    }
+}
+
+function fetchAllData() {
+    fetch('https://zxc-production-f99b.up.railway.app/api/events/last_days/30')
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'success') {
+                allEvents = data.events || [];
+                console.log('📊 History 更新数据，共', allEvents.length, '条');
+                renderEvents();
+            }
+        })
+        .catch(err => console.error('获取数据失败:', err));
+}
+
+setTimeout(connectWebSocket, 500);
+console.log('🔄 History 页面已启动 WebSocket 实时更新');
+
             console.log('🚀 History页面 启动完成（分页 + 筛选）');
         </script>
     </body>
