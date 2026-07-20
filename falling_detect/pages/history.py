@@ -46,8 +46,7 @@ def main():
         date_option = st.selectbox(
             "📅 时间范围",
             ["今天", "最近3天", "最近7天", "最近15天", "全部"],
-            index=3,
-            key="date_filter"
+            index=3
         )
 
     with col2:
@@ -56,8 +55,7 @@ def main():
         selected_type = st.selectbox(
             "📋 事件类型",
             options=type_options,
-            index=0,
-            key="type_filter"
+            index=0
         )
 
     with col3:
@@ -66,8 +64,7 @@ def main():
         selected_level = st.selectbox(
             "⚠️ 风险等级",
             options=level_options,
-            index=0,
-            key="level_filter"
+            index=0
         )
 
     # ============================================================
@@ -106,14 +103,6 @@ def main():
 
     # 将事件数据转为 JSON 传递给前端
     events_json = json.dumps(filtered_events, default=str, ensure_ascii=False)
-
-    # 将筛选条件传递给前端（用于记忆筛选状态）
-    filter_state = {
-        'date': date_option,
-        'type': selected_type,
-        'level': selected_level
-    }
-    filter_state_json = json.dumps(filter_state, ensure_ascii=False)
 
     st.components.v1.html(f"""
     <!DOCTYPE html>
@@ -358,7 +347,7 @@ def main():
 
         <script>
             // ============================================================
-            // 历史记录 + WebSocket 实时更新 + 分页 + 筛选记忆
+            // 历史记录 + WebSocket 实时更新 + 分页
             // ============================================================
 
             const API_BASE = 'https://zxc-production-f99b.up.railway.app';
@@ -371,13 +360,7 @@ def main():
             var pageSize = 15;
             var totalPages = 1;
 
-            // ============================================================
-            // 【新增】记住当前筛选条件（从 Python 传递过来）
-            // ============================================================
-            var currentFilter = {filter_state_json};
-
             console.log('📊 加载事件数:', allEvents.length);
-            console.log('📋 当前筛选条件:', currentFilter);
 
             // ============================================================
             // 状态更新函数
@@ -561,67 +544,10 @@ def main():
             window.changePageSize = changePageSize;
 
             // ============================================================
-            // 【关键修改】从数据库加载最新事件（带筛选参数）
+            // 从数据库加载最新事件
             // ============================================================
             function loadEventsFromDB() {{
-                // 从页面上的 select 读取当前筛选条件
-                var dateSelect = document.querySelector('select[data-testid="stSelectbox"][aria-label="时间范围"]');
-                if (!dateSelect) {{
-                    // 尝试另一种方式查找
-                    var allSelects = document.querySelectorAll('select');
-                    for (var i = 0; i < allSelects.length; i++) {{
-                        var label = allSelects[i].closest('[data-testid="stSelectbox"]');
-                        if (label && label.getAttribute('aria-label') === '时间范围') {{
-                            dateSelect = allSelects[i];
-                            break;
-                        }}
-                    }}
-                }}
-                if (dateSelect) {{
-                    currentFilter.date = dateSelect.options[dateSelect.selectedIndex].text;
-                }}
-
-                var typeSelect = document.querySelector('select[data-testid="stSelectbox"][aria-label="事件类型"]');
-                if (!typeSelect) {{
-                    var allSelects = document.querySelectorAll('select');
-                    for (var i = 0; i < allSelects.length; i++) {{
-                        var label = allSelects[i].closest('[data-testid="stSelectbox"]');
-                        if (label && label.getAttribute('aria-label') === '事件类型') {{
-                            typeSelect = allSelects[i];
-                            break;
-                        }}
-                    }}
-                }}
-                if (typeSelect) {{
-                    currentFilter.type = typeSelect.options[typeSelect.selectedIndex].text;
-                }}
-
-                var levelSelect = document.querySelector('select[data-testid="stSelectbox"][aria-label="风险等级"]');
-                if (!levelSelect) {{
-                    var allSelects = document.querySelectorAll('select');
-                    for (var i = 0; i < allSelects.length; i++) {{
-                        var label = allSelects[i].closest('[data-testid="stSelectbox"]');
-                        if (label && label.getAttribute('aria-label') === '风险等级') {{
-                            levelSelect = allSelects[i];
-                            break;
-                        }}
-                    }}
-                }}
-                if (levelSelect) {{
-                    currentFilter.level = levelSelect.options[levelSelect.selectedIndex].text;
-                }}
-
-                // 构建查询参数
-                var params = new URLSearchParams();
-                params.append('date', currentFilter.date);
-                params.append('type', currentFilter.type);
-                params.append('level', currentFilter.level);
-
-                var url = API_BASE + '/api/events/all?' + params.toString();
-                console.log('📤 请求筛选数据:', url);
-                console.log('📋 筛选条件:', currentFilter);
-
-                fetch(url)
+                fetch(API_BASE + '/api/events/all')
                     .then(response => response.json())
                     .then(data => {{
                         if (data.status === 'success') {{
@@ -665,7 +591,6 @@ def main():
                                 .then(response => response.json())
                                 .then(result => {{
                                     console.log('💾 保存到数据库:', result);
-                                    // 【关键修改】重新加载时带上当前筛选条件
                                     loadEventsFromDB();
                                 }})
                                 .catch(error => console.error('保存失败:', error));
@@ -695,47 +620,6 @@ def main():
             }}
 
             // ============================================================
-            // 【新增】监听筛选条件变化 - 使用 MutationObserver
-            // ============================================================
-            function setupFilterChangeListener() {{
-                // 由于 Streamlit 的 selectbox 是动态渲染的，使用 MutationObserver 监听变化
-                var observer = new MutationObserver(function() {{
-                    // 检测页面上的 select 是否变化
-                    var selects = document.querySelectorAll('select');
-                    if (selects.length >= 3) {{
-                        // 移除旧的监听器，重新绑定
-                        observer.disconnect();
-                        bindSelectChangeEvents();
-                    }}
-                }});
-
-                observer.observe(document.body, {{
-                    childList: true,
-                    subtree: true
-                }});
-
-                // 初始绑定
-                setTimeout(bindSelectChangeEvents, 1000);
-            }}
-
-            function bindSelectChangeEvents() {{
-                var selects = document.querySelectorAll('select');
-                selects.forEach(function(select) {{
-                    // 移除旧的监听器
-                    select.removeEventListener('change', onFilterChangeHandler);
-                    // 添加新的监听器
-                    select.addEventListener('change', onFilterChangeHandler);
-                }});
-                console.log('🔗 已绑定筛选变化监听');
-            }}
-
-            function onFilterChangeHandler() {{
-                console.log('📋 筛选条件已变化，重新加载数据');
-                // 延迟一点点，确保 Streamlit 完成了状态更新
-                setTimeout(loadEventsFromDB, 300);
-            }}
-
-            // ============================================================
             // 启动
             // ============================================================
 
@@ -745,7 +629,6 @@ def main():
 
             setTimeout(connectWebSocket, 500);
 
-            // 定时刷新（带筛选条件）
             setInterval(function() {{
                 loadEventsFromDB();
             }}, 5000);
@@ -760,10 +643,7 @@ def main():
                 }}
             }});
 
-            // 设置筛选变化监听
-            setupFilterChangeListener();
-
-            console.log('🚀 History页面 启动完成 (WebSocket + MySQL + 筛选记忆)');
+            console.log('🚀 History页面 启动完成 (WebSocket + MySQL + 分页)');
         </script>
     </body>
     </html>
