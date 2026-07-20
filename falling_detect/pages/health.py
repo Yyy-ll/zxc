@@ -98,7 +98,7 @@ def main():
         })
 
     health_data_json = json.dumps(health_data_serializable, ensure_ascii=False, default=str)
-
+    health_data_json_safe = json.dumps(health_data_json)  # 安全转义
     st.components.v1.html(f"""
     <!DOCTYPE html>
     <html>
@@ -292,7 +292,7 @@ def main():
             // ============================================================
 
             var healthChart = null;
-            var healthData = {health_data_json};
+            var healthData = JSON.parse({health_data_json_safe});
 
             function initChart() {{
                 var ctx = document.getElementById('healthChart').getContext('2d');

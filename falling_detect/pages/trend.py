@@ -113,7 +113,7 @@ def main():
         })
 
     trend_data_json = json.dumps(trend_data_serializable, ensure_ascii=False, default=str)
-
+    trend_data_json_safe = json.dumps(trend_data_json)  # 安全转义
     st.components.v1.html(f"""
     <!DOCTYPE html>
     <html>
@@ -278,7 +278,7 @@ def main():
             // 7天风险趋势图
             // ============================================================
 
-            var trendData = {trend_data_json};
+            var trendData = JSON.parse({trend_data_json_safe});
 
             function initChart() {{
                 var ctx = document.getElementById('trendChart').getContext('2d');
