@@ -435,8 +435,8 @@ def main():
 
         <script>
             const INITIAL_DATA = {initial_data_json};
-            const API_BASE = window.location.origin;
-            const WS_URL = 'wss://' + window.location.host + '/ws';
+            const API_BASE ='https://zxc-production-f99b.up.railway.app';
+            const WS_URL = 'wss://zxc-production-f99b.up.railway.app/ws/feedback';
 
             let allFeedbacks = INITIAL_DATA.all || [];
             let userFeedbacks = INITIAL_DATA.user || [];

@@ -476,7 +476,7 @@ def main():
             // WebSocket + MySQL 持久化 + 分页 + 状态管理
             // ============================================================
 
-            const API_BASE = 'http://localhost:8000';
+            const API_BASE = 'https://zxc-production-f99b.up.railway.app';
             var ws = null;
             var reconnectTimer = null;
             var isConnected = false;
@@ -834,7 +834,7 @@ def main():
             function connectWebSocket() {{
                 try {{
                     console.log('🔗 连接 WebSocket...');
-                    ws = new WebSocket('ws://localhost:8000/ws');
+                    ws = new WebSocket('wss://zxc-production-f99b.up.railway.app/ws/family');
 
                     ws.onopen = function() {{
                         console.log('✅ WebSocket 已连接');
