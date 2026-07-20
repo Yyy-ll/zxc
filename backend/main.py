@@ -412,6 +412,70 @@ async def update_feedback(feedback_id: int, data: Dict[str, Any]):
 
 
 # ============================================================
+# 【新增】获取所有反馈（管理员用）
+# ============================================================
+@app.get("/api/feedback/user/all")
+async def get_all_feedback():
+    """获取所有反馈（管理员用）"""
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM feedback 
+            ORDER BY CASE WHEN status = '待处理' THEN 0 WHEN status = '处理中' THEN 1 ELSE 2 END, created_at DESC
+        ''')
+        rows = cursor.fetchall()
+        return JSONResponse({
+            'status': 'success',
+            'total': len(rows),
+            'feedbacks': [dict(row) for row in rows]
+        })
+
+
+# ============================================================
+# 【新增】处理反馈（管理员用）
+# ============================================================
+@app.post("/api/admin/handle_feedback")
+async def handle_feedback(data: Dict[str, Any]):
+    """管理员处理反馈"""
+    try:
+        feedback_id = data.get('id')
+        status = data.get('status', '已处理')
+        notes = data.get('notes', '')
+        handled_by = data.get('handled_by', '管理员')
+
+        with get_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE feedback 
+                SET status = ?, notes = ?, handled_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+            ''', (status, notes, feedback_id))
+            conn.commit()
+
+            if cursor.rowcount == 0:
+                return JSONResponse({
+                    'status': 'error',
+                    'message': '反馈不存在'
+                }, status_code=404)
+
+        # WebSocket 广播通知
+        await manager.broadcast({
+            'type': 'feedback_update',
+            'message': f'反馈 #{feedback_id} 已处理'
+        }, room="feedback")
+
+        return JSONResponse({
+            'status': 'success',
+            'message': '反馈已处理'
+        })
+    except Exception as e:
+        return JSONResponse({
+            'status': 'error',
+            'message': str(e)
+        }, status_code=500)
+
+
+# ============================================================
 # WebSocket 端点
 # ============================================================
 

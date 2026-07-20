@@ -42,37 +42,70 @@ def convert_to_serializable(obj):
 
 
 # ============================================================
-# 获取数据函数
+# 获取数据函数 - 从后端 API 获取
 # ============================================================
+API_BASE = 'https://zxc-production-f99b.up.railway.app'
+
+
 def get_admin_data():
-    """获取管理面板所有数据"""
-    stats_sql = """
-        SELECT 
-            COUNT(*) as total,
-            SUM(CASE WHEN status = '待处理' THEN 1 ELSE 0 END) as pending,
-            SUM(CASE WHEN status = '处理中' THEN 1 ELSE 0 END) as processing,
-            SUM(CASE WHEN status = '已处理' THEN 1 ELSE 0 END) as resolved,
-            SUM(CASE WHEN status = '已忽略' THEN 1 ELSE 0 END) as ignored,
-            COUNT(DISTINCT username) as unique_users
-        FROM feedback
-    """
-    stats = execute_query(stats_sql)
-    stats = stats[0] if stats else {}
+    """从后端 API 获取管理面板所有数据"""
+    try:
+        import requests
 
-    sql = """
-        SELECT * FROM feedback 
-        ORDER BY CASE WHEN status = '待处理' THEN 0 WHEN status = '处理中' THEN 1 ELSE 2 END, created_at DESC
-    """
-    feedbacks = execute_query(sql)
+        # 获取所有反馈
+        response = requests.get(f"{API_BASE}/api/feedback/user/all", timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            feedbacks = data.get('feedbacks', [])
+        else:
+            feedbacks = []
 
-    stats = convert_to_serializable(stats)
-    feedbacks = convert_to_serializable(feedbacks)
+        # 计算统计
+        stats = {
+            'total': len(feedbacks),
+            'pending': len([f for f in feedbacks if f.get('status') == '待处理']),
+            'processing': len([f for f in feedbacks if f.get('status') == '处理中']),
+            'resolved': len([f for f in feedbacks if f.get('status') == '已处理']),
+            'ignored': len([f for f in feedbacks if f.get('status') == '已忽略']),
+            'unique_users': len(set(f.get('username', '') for f in feedbacks if f.get('username')))
+        }
 
-    return {
-        'stats': stats,
-        'feedbacks': feedbacks,
-        'total': len(feedbacks) if feedbacks else 0
-    }
+        return {
+            'stats': convert_to_serializable(stats),
+            'feedbacks': convert_to_serializable(feedbacks),
+            'total': len(feedbacks)
+        }
+    except Exception as e:
+        print(f"获取数据失败: {e}")
+        return {
+            'stats': {'total': 0, 'pending': 0, 'processing': 0, 'resolved': 0, 'ignored': 0, 'unique_users': 0},
+            'feedbacks': [],
+            'total': 0
+        }
+
+
+def handle_feedback_api(feedback_id, status, notes, handled_by='管理员'):
+    """通过 API 处理反馈"""
+    try:
+        import requests
+        data = {
+            'id': feedback_id,
+            'status': status,
+            'notes': notes,
+            'handled_by': handled_by
+        }
+        response = requests.post(
+            f"{API_BASE}/api/admin/handle_feedback",
+            json=data,
+            headers={'Content-Type': 'application/json'},
+            timeout=10
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return {'status': 'error', 'message': f'HTTP {response.status_code}'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
 
 
 # ============================================================
@@ -707,6 +740,7 @@ def main():
                 <div id="page-feedback" class="page">
                     <div style="margin-bottom:12px;color:#64748b;font-size:14px;">
                         共 <span id="fb-total">0</span> 条记录
+                        <button onclick="loadAllData()" style="margin-left:12px;padding:4px 12px;border:1px solid #e5e7eb;border-radius:6px;background:white;cursor:pointer;">🔄 刷新</button>
                     </div>
                     <div id="feedback-list"></div>
                 </div>
@@ -754,8 +788,8 @@ def main():
 
         <script>
             const INITIAL_DATA = {initial_data_json};
-            const API_BASE = 'http://localhost:8001';
-            const WS_URL = 'ws://localhost:8766';
+            const API_BASE = 'https://zxc-production-f99b.up.railway.app';
+            const WS_URL = 'wss://zxc-production-f99b.up.railway.app/ws/feedback';
 
             let allFeedbacks = INITIAL_DATA.feedbacks || [];
             let stats = INITIAL_DATA.stats || {{}};
@@ -821,18 +855,30 @@ def main():
             }}
 
             function loadAllData() {{
-                fetch(API_BASE + '/api/admin/data')
+                fetch(API_BASE + '/api/feedback/user/all')
                     .then(response => response.json())
                     .then(data => {{
                         if (data.status === 'success') {{
                             allFeedbacks = data.feedbacks || [];
-                            stats = data.stats || {{}};
+                            // 重新计算统计
+                            stats = {{
+                                'total': allFeedbacks.length,
+                                'pending': allFeedbacks.filter(f => f.status === '待处理').length,
+                                'processing': allFeedbacks.filter(f => f.status === '处理中').length,
+                                'resolved': allFeedbacks.filter(f => f.status === '已处理').length,
+                                'ignored': allFeedbacks.filter(f => f.status === '已忽略').length,
+                                'unique_users': new Set(allFeedbacks.map(f => f.username).filter(u => u)).size
+                            }};
                             renderAll();
                             document.getElementById('update-time').textContent = new Date().toLocaleString('zh-CN');
+                            showToast('success', '✅ 数据已刷新');
                         }}
                     }})
-                    .catch(error => console.error('加载数据失败:', error));
+                    .catch(error => {{ console.error('加载数据失败:', error); showToast('error', '❌ 加载数据失败'); }});
             }}
+
+            // 暴露给全局
+            window.loadAllData = loadAllData;
 
             function renderAll() {{
                 renderDashboard();
@@ -925,6 +971,7 @@ def main():
                                 <div class="row"><span class="label">📋 类型：</span>${{fb.feedback_type || '未知'}}</div>
                                 <div class="row"><span class="label">📝 描述：</span>${{fb.description || '无描述'}}</div>
                                 <div class="row"><span class="label">📅 事件时间：</span>${{fb.event_time || '未知'}}</div>
+                                <div class="row"><span class="label">📅 提交时间：</span>${{fb.created_at || '未知'}}</div>
                                 ${{fb.notes ? `<div class="row"><span class="label">💬 备注：</span>${{fb.notes}}</div>` : ''}}
                                 <div class="action-form">
                                     <div>
@@ -985,7 +1032,7 @@ def main():
                 const total = allFeedbacks.length;
                 const resolved = allFeedbacks.filter(f => f.status === '已处理').length;
                 const pending = allFeedbacks.filter(f => f.status === '待处理').length;
-                const users = new Set(allFeedbacks.map(f => f.username)).size;
+                const users = new Set(allFeedbacks.map(f => f.username).filter(u => u)).size;
                 const rate = total > 0 ? Math.round(resolved / total * 100) : 0;
 
                 document.getElementById('stats-total').textContent = total;
