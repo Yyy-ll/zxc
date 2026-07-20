@@ -197,58 +197,27 @@ async def get_events_last_days(days: int):
 # 【新增】获取所有事件（近15天）- 给 history.py 使用
 # ============================================================
 @app.get("/api/events/all")
-async def get_all_events(
-        date: str = None,  # 时间范围: 今天, 最近3天, 最近7天, 最近15天, 全部
-        type: str = None,  # 事件类型
-        level: str = None  # 风险等级
-):
-    """获取事件（支持筛选参数）"""
+async def get_all_events():
+    """获取近15天所有事件"""
     from datetime import datetime, timedelta
 
     with get_db() as conn:
         cursor = conn.cursor()
-
-        # 构建 SQL 查询
-        sql = "SELECT * FROM events WHERE 1=1"
-        params = []
-
-        # 日期筛选
-        today = datetime.now()
-        today_str = today.strftime('%Y-%m-%d')
-
-        if date == "今天":
-            sql += " AND DATE(timestamp) = ?"
-            params.append(today_str)
-        elif date == "最近3天":
-            cutoff = (today - timedelta(days=3)).strftime('%Y-%m-%d')
-            sql += " AND DATE(timestamp) >= ?"
-            params.append(cutoff)
-        elif date == "最近7天":
-            cutoff = (today - timedelta(days=7)).strftime('%Y-%m-%d')
-            sql += " AND DATE(timestamp) >= ?"
-            params.append(cutoff)
-        elif date == "最近15天":
-            cutoff = (today - timedelta(days=15)).strftime('%Y-%m-%d')
-            sql += " AND DATE(timestamp) >= ?"
-            params.append(cutoff)
-        # "全部" 不添加日期过滤
-
-        # 类型筛选
-        if type and type != "全部":
-            sql += " AND alert_type = ?"
-            params.append(type)
-
-        # 等级筛选
-        if level and level != "全部":
-            sql += " AND level = ?"
-            params.append(level)
-
-        sql += " ORDER BY timestamp DESC"
-
-        cursor.execute(sql, params)
+        cursor.execute('''
+            SELECT * FROM events 
+            WHERE timestamp >= DATE('now', '-15 days')
+            ORDER BY timestamp DESC
+        ''')
         rows = cursor.fetchall()
 
-        events = [dict(row) for row in rows]
+        events = []
+        for row in rows:
+            event = dict(row)
+            # 确保 timestamp 是字符串格式
+            if 'timestamp' in event and isinstance(event['timestamp'], str):
+                # 已经是字符串，保留
+                pass
+            events.append(event)
 
         return JSONResponse({
             'status': 'success',
