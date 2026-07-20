@@ -88,7 +88,6 @@ def main():
     # ============================================================
     # 序列化 health_data 为 JSON，避免语法错误
     # ============================================================
-    import json
 
     health_data_serializable = []
     for item in health_data:
@@ -98,7 +97,7 @@ def main():
             'count': item['count']
         })
 
-    health_data_json = json.dumps(health_data_serializable, ensure_ascii=False)
+    health_data_json = json.dumps(health_data_serializable, ensure_ascii=False, default=str)
 
     st.components.v1.html(f"""
     <!DOCTYPE html>

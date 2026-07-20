@@ -103,7 +103,6 @@ def main():
     # ============================================================
     # 序列化 trend_data 为 JSON，避免语法错误
     # ============================================================
-    import json
 
     trend_data_serializable = []
     for item in trend_data:
@@ -113,7 +112,7 @@ def main():
             'count': item['count']
         })
 
-    trend_data_json = json.dumps(trend_data_serializable, ensure_ascii=False)
+    trend_data_json = json.dumps(trend_data_serializable, ensure_ascii=False, default=str)
 
     st.components.v1.html(f"""
     <!DOCTYPE html>
