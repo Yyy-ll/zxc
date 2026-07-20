@@ -467,10 +467,10 @@ pg = st.navigation(
 # ===== 在st.navigation之后添加底部按钮 =====
 st.sidebar.markdown("""
  <div class="sidebar-footer-actions">
-     <button class="btn-call btn-call-family" onclick="alert('📞 正在联系老人...')">
+     <button class="btn-call btn-call-family" onclick="window.location.href='tel:17737928701'">
          <span class="btn-icon">📞</span> 联系老人
      </button>
-     <button class="btn-call btn-call-emergency" onclick="alert('🆘 紧急求助已发送！\\n家人将收到通知')">
+     <button class="btn-call btn-call-emergency" onclick="window.location.href='tel:17737928701'">
          <span class="btn-icon">🆘</span> 紧急求助
      </button>
  </div>
