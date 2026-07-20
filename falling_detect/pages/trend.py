@@ -5,11 +5,13 @@ from datetime import datetime, timedelta
 from utils.auth import require_auth, get_current_user
 from utils.db import get_events_last_days
 import random
+import requests
 
 
 @require_auth
 def main():
     user = get_current_user()
+    API_BASE = 'https://zxc-production-f99b.up.railway.app'
 
     st.markdown("""
     <div style="display: flex; align-items: center; gap: 12px; padding: 16px 0 12px 0; border-bottom: 3px solid #f97316; margin-bottom: 16px;">
@@ -100,20 +102,9 @@ def main():
         suggestion = '等待更多数据...'
         current_score = '--'
 
-    # ============================================================
-    # 序列化 trend_data 为 JSON，避免语法错误
-    # ============================================================
+    # 将趋势数据转为 JSON 传递给前端
+    trend_data_json = json.dumps(trend_data, default=str, ensure_ascii=False)
 
-    trend_data_serializable = []
-    for item in trend_data:
-        trend_data_serializable.append({
-            'date': item['date'],
-            'score': item['score'],
-            'count': item['count']
-        })
-
-    trend_data_json = json.dumps(trend_data_serializable, ensure_ascii=False, default=str)
-    trend_data_json_safe = json.dumps(trend_data_json)  # 安全转义
     st.components.v1.html(f"""
     <!DOCTYPE html>
     <html>
@@ -208,6 +199,8 @@ def main():
             }}
             .footer-bar .dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }}
             .dot-orange {{ background: #f97316; }}
+            .dot-green {{ background: #22c55e; }}
+            .dot-red {{ background: #ef4444; }}
 
             .chart-container {{
                 width: 100%;
@@ -218,6 +211,15 @@ def main():
                 width: 100% !important;
                 height: 100% !important;
             }}
+
+            .db-status {{
+                font-size: 12px;
+                padding: 4px 12px;
+                border-radius: 20px;
+            }}
+            .db-status.active {{ background: #dcfce7; color: #166534; }}
+            .db-status.inactive {{ background: #fee2e2; color: #991b1b; }}
+            .db-status.waiting {{ background: #fef3c7; color: #92400e; }}
 
             @media screen and (max-width: 768px) {{
                 .stats-row {{ grid-template-columns: 1fr; gap: 10px; }}
@@ -252,6 +254,7 @@ def main():
                     <span>📊 近7天风险变化趋势</span>
                     <span style="font-size:13px;color:#94a3b8;font-weight:400;">
                         趋势: <span class="{trend_class}" style="font-weight:600;">{trend_icon} {trend}</span>
+                        &nbsp;|&nbsp; <span class="db-status active" id="ws-status">● WebSocket 已连接</span>
                     </span>
                 </div>
                 <div class="chart-container">
@@ -262,12 +265,12 @@ def main():
             <!-- 建议卡片 -->
             <div class="suggestion-card">
                 <div class="suggestion-title">💡 健康建议</div>
-                <p class="suggestion-text">{suggestion}</p>
+                <p class="suggestion-text" id="suggestion-text">{suggestion}</p>
             </div>
 
             <!-- 底部栏 -->
             <div class="footer-bar">
-                <span><span class="dot dot-orange"></span>预测模型运行中</span>
+                <span><span class="dot dot-orange" id="status-dot"></span><span id="status-text">预测模型运行中</span></span>
                 <span>📊 数据更新: 实时</span>
                 <span id="update-time">🎯 预测准确率: {accuracy}%</span>
             </div>
@@ -275,18 +278,60 @@ def main():
 
         <script>
             // ============================================================
-            // 7天风险趋势图
+            // 7天风险趋势图 + WebSocket 实时更新
             // ============================================================
 
-            var trendData = JSON.parse({trend_data_json_safe});
+            const API_BASE = 'https://zxc-production-f99b.up.railway.app';
+            var ws = null;
+            var reconnectTimer = null;
+            var isConnected = false;
+            var trendChart = null;
+            var trendData = {trend_data_json};
 
+            // ============================================================
+            // 状态更新函数
+            // ============================================================
+            function updateConnectionStatus(connected) {{
+                isConnected = connected;
+                var wsStatus = document.getElementById('ws-status');
+                var statusDot = document.getElementById('status-dot');
+                var statusText = document.getElementById('status-text');
+
+                if (connected) {{
+                    if (wsStatus) {{
+                        wsStatus.textContent = '● WebSocket 已连接';
+                        wsStatus.className = 'db-status active';
+                    }}
+                    if (statusDot) {{
+                        statusDot.className = 'dot dot-green';
+                    }}
+                    if (statusText) {{
+                        statusText.textContent = '预测模型运行中';
+                    }}
+                }} else {{
+                    if (wsStatus) {{
+                        wsStatus.textContent = '● WebSocket 断开';
+                        wsStatus.className = 'db-status inactive';
+                    }}
+                    if (statusDot) {{
+                        statusDot.className = 'dot dot-red';
+                    }}
+                    if (statusText) {{
+                        statusText.textContent = '等待重连...';
+                    }}
+                }}
+            }}
+
+            // ============================================================
+            // 初始化图表
+            // ============================================================
             function initChart() {{
                 var ctx = document.getElementById('trendChart').getContext('2d');
                 var labels = trendData.map(d => d.date);
                 var scores = trendData.map(d => d.score);
                 var counts = trendData.map(d => d.count);
 
-                new Chart(ctx, {{
+                trendChart = new Chart(ctx, {{
                     type: 'line',
                     data: {{
                         labels: labels,
@@ -386,110 +431,159 @@ def main():
                 }});
             }}
 
+            // ============================================================
+            // 更新图表 - 当收到新事件时
+            // ============================================================
+            function updateChartWithNewEvent() {{
+                if (!trendChart) return;
+
+                // 从数据库重新加载趋势数据
+                fetch(API_BASE + '/api/events/trend')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'success' && data.trend_data) {{
+                            var newData = data.trend_data;
+                            var labels = newData.map(d => d.date);
+                            var scores = newData.map(d => d.score);
+                            var counts = newData.map(d => d.count);
+
+                            trendChart.data.labels = labels;
+                            trendChart.data.datasets[0].data = scores;
+                            trendChart.data.datasets[1].data = counts;
+                            trendChart.data.datasets[0].pointBackgroundColor = scores.map(s => 
+                                s > 70 ? '#ef4444' : s > 40 ? '#f97316' : '#22c55e'
+                            );
+                            trendChart.update();
+
+                            // 更新统计卡片
+                            if (scores.length > 0) {{
+                                var lastScore = scores[scores.length - 1];
+                                var statEl = document.querySelector('.stat-number-orange');
+                                if (statEl) statEl.textContent = lastScore;
+                                var progressEl = document.querySelector('.progress-fill');
+                                if (progressEl) progressEl.style.width = lastScore + '%';
+                            }}
+
+                            document.getElementById('update-time').textContent = '🕐 最后更新: ' + new Date().toLocaleTimeString('zh-CN');
+                        }}
+                    }})
+                    .catch(error => console.error('加载趋势数据失败:', error));
+            }}
+
+            // ============================================================
+            // 从数据库加载最新趋势数据
+            // ============================================================
+            function loadTrendData() {{
+                fetch(API_BASE + '/api/events/trend')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'success' && data.trend_data) {{
+                            var newData = data.trend_data;
+                            var labels = newData.map(d => d.date);
+                            var scores = newData.map(d => d.score);
+                            var counts = newData.map(d => d.count);
+
+                            if (trendChart) {{
+                                trendChart.data.labels = labels;
+                                trendChart.data.datasets[0].data = scores;
+                                trendChart.data.datasets[1].data = counts;
+                                trendChart.data.datasets[0].pointBackgroundColor = scores.map(s => 
+                                    s > 70 ? '#ef4444' : s > 40 ? '#f97316' : '#22c55e'
+                                );
+                                trendChart.update();
+                            }}
+
+                            document.getElementById('update-time').textContent = '🕐 最后更新: ' + new Date().toLocaleTimeString('zh-CN');
+                        }}
+                    }})
+                    .catch(error => console.error('加载趋势数据失败:', error));
+            }}
+
+            // ============================================================
+            // WebSocket 连接
+            // ============================================================
+            function connectWebSocket() {{
+                try {{
+                    console.log('🔗 连接 WebSocket...');
+                    ws = new WebSocket('wss://zxc-production-f99b.up.railway.app/ws/family');
+
+                    ws.onopen = function() {{
+                        console.log('✅ WebSocket 已连接');
+                        updateConnectionStatus(true);
+                    }};
+
+                    ws.onmessage = function(event) {{
+                        try {{
+                            const data = JSON.parse(event.data);
+                            console.log('📩 收到:', data.type);
+
+                            if (data.type === 'alert') {{
+                                // 保存到数据库
+                                fetch(API_BASE + '/api/report', {{
+                                    method: 'POST',
+                                    headers: {{'Content-Type': 'application/json'}},
+                                    body: JSON.stringify(data)
+                                }})
+                                .then(response => response.json())
+                                .then(result => {{
+                                    console.log('💾 保存到数据库:', result);
+                                    // 更新趋势图
+                                    loadTrendData();
+                                }})
+                                .catch(error => console.error('保存失败:', error));
+                            }}
+                        }} catch(e) {{
+                            console.error('解析消息失败:', e);
+                        }}
+                    }};
+
+                    ws.onclose = function() {{
+                        console.log('❌ WebSocket 断开');
+                        updateConnectionStatus(false);
+                        if (reconnectTimer) clearTimeout(reconnectTimer);
+                        reconnectTimer = setTimeout(connectWebSocket, 3000);
+                    }};
+
+                    ws.onerror = function(error) {{
+                        console.error('WebSocket 错误:', error);
+                    }};
+
+                }} catch(e) {{
+                    console.error('连接失败:', e);
+                    updateConnectionStatus(false);
+                    if (reconnectTimer) clearTimeout(reconnectTimer);
+                    reconnectTimer = setTimeout(connectWebSocket, 3000);
+                }}
+            }}
+
+            // ============================================================
+            // 启动
+            // ============================================================
+
             initChart();
-// ============================================================
-// WebSocket 实时更新 - 近7天趋势
-// ============================================================
 
-const WS_URL = 'wss://zxc-production-f99b.up.railway.app/ws/family';
-let ws = null;
-let reconnectTimer = null;
+            // 初始状态设为未连接
+            updateConnectionStatus(false);
 
-function connectWebSocket() {
-    try {
-        console.log('🔗 Trend 连接 WebSocket...');
-        ws = new WebSocket(WS_URL);
+            // 连接 WebSocket
+            setTimeout(connectWebSocket, 500);
 
-        ws.onopen = function() {
-            console.log('✅ Trend WebSocket 已连接');
-        };
+            // 定时刷新
+            setInterval(function() {{
+                loadTrendData();
+            }}, 10000);
 
-        ws.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'new_alert') {
-                    console.log('📩 Trend 收到新告警，更新数据');
-                    fetchLast7DaysData();
-                }
-            } catch(e) {
-                console.error('解析失败:', e);
-            }
-        };
+            document.addEventListener('visibilitychange', function() {{
+                if (!document.hidden) {{
+                    console.log('👁️ 页面可见，刷新数据');
+                    loadTrendData();
+                    if (!isConnected) {{
+                        connectWebSocket();
+                    }}
+                }}
+            }});
 
-        ws.onclose = function() {
-            console.log('❌ Trend WebSocket 断开，3秒后重连');
-            if (reconnectTimer) clearTimeout(reconnectTimer);
-            reconnectTimer = setTimeout(connectWebSocket, 3000);
-        };
-
-        ws.onerror = function(error) {
-            console.error('WebSocket 错误:', error);
-        };
-
-    } catch(e) {
-        console.error('连接失败:', e);
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connectWebSocket, 5000);
-    }
-}
-
-function fetchLast7DaysData() {
-    fetch('https://zxc-production-f99b.up.railway.app/api/events/last_days/7')
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                const events = data.events || [];
-                console.log('📊 Trend 更新近7天数据，共', events.length, '条');
-                updateTrendChart(events);
-            }
-        })
-        .catch(err => console.error('获取数据失败:', err));
-}
-
-function updateTrendChart(events) {
-    // 按天统计
-    const dayCount = {};
-    events.forEach(e => {
-        let dateKey = '未知';
-        if (e.timestamp) {
-            try {
-                const d = new Date(e.timestamp);
-                dateKey = (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
-            } catch {}
-        }
-        dayCount[dateKey] = (dayCount[dateKey] || 0) + 1;
-    });
-
-    // 生成近7天数据
-    const today = new Date();
-    const labels = [];
-    const scores = [];
-    const counts = [];
-
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        const dateKey = (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
-        labels.push(dateKey);
-        const count = dayCount[dateKey] || 0;
-        counts.push(count);
-        const score = Math.max(0, Math.min(100, count * 8 + Math.floor(Math.random() * 15 - 5)));
-        scores.push(score);
-    }
-
-    // 更新图表
-    if (window.trendChart) {
-        window.trendChart.data.labels = labels;
-        window.trendChart.data.datasets[0].data = scores;
-        window.trendChart.data.datasets[1].data = counts;
-        window.trendChart.update();
-    }
-}
-
-setTimeout(connectWebSocket, 500);
-console.log('🔄 Trend 页面已启动 WebSocket 实时更新');
-
-            console.log('🚀 Trend页面 启动完成');
+            console.log('🚀 Trend页面 启动完成 (WebSocket + MySQL)');
         </script>
     </body>
     </html>

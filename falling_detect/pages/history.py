@@ -4,11 +4,13 @@ import json
 from datetime import datetime, timedelta
 from utils.auth import require_auth, get_current_user
 from utils.db import get_events_last_days, get_all_events
+import requests
 
 
 @require_auth
 def main():
     user = get_current_user()
+    API_BASE = 'https://zxc-production-f99b.up.railway.app'
 
     st.markdown("""
     <div style="display: flex; align-items: center; gap: 12px; padding: 16px 0 12px 0; border-bottom: 3px solid #f97316; margin-bottom: 16px;">
@@ -205,6 +207,8 @@ def main():
             }}
             .footer-bar .dot {{ display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }}
             .dot-blue {{ background: #3b82f6; }}
+            .dot-green {{ background: #22c55e; }}
+            .dot-red {{ background: #ef4444; }}
 
             .empty-state {{
                 text-align: center; padding: 40px 20px; color: #94a3b8;
@@ -283,6 +287,15 @@ def main():
                 border-color: #2563eb;
             }}
 
+            .db-status {{
+                font-size: 12px;
+                padding: 4px 12px;
+                border-radius: 20px;
+            }}
+            .db-status.active {{ background: #dcfce7; color: #166534; }}
+            .db-status.inactive {{ background: #fee2e2; color: #991b1b; }}
+            .db-status.waiting {{ background: #fef3c7; color: #92400e; }}
+
             @media screen and (max-width: 768px) {{
                 .stats-row {{ grid-template-columns: 1fr; gap: 10px; }}
                 .event-time {{ min-width: 80px; font-size: 11px; }}
@@ -296,15 +309,15 @@ def main():
             <!-- 统计卡片行 -->
             <div class="stats-row">
                 <div class="stat-card">
-                    <div class="stat-number stat-number-blue">{len(today_events)}</div>
+                    <div class="stat-number stat-number-blue" id="today-count">{len(today_events)}</div>
                     <div class="stat-label">今日事件</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number stat-number-blue">{len(week_events)}</div>
+                    <div class="stat-number stat-number-blue" id="week-count">{len(week_events)}</div>
                     <div class="stat-label">本周事件</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number stat-number-blue">{len(month_events)}</div>
+                    <div class="stat-number stat-number-blue" id="total-count">{len(filtered_events)}</div>
                     <div class="stat-label">筛选结果</div>
                 </div>
             </div>
@@ -313,7 +326,10 @@ def main():
             <div class="content-card">
                 <div class="card-title">
                     <span>📋 事件记录</span>
-                    <span style="font-size:13px;color:#94a3b8;">共 <span id="total-count">{len(filtered_events)}</span> 条</span>
+                    <span style="font-size:13px;color:#94a3b8;">
+                        共 <span id="total-count-label">{len(filtered_events)}</span> 条
+                        &nbsp;|&nbsp; <span class="db-status active" id="ws-status">● WebSocket 已连接</span>
+                    </span>
                 </div>
                 <div class="event-list-container" id="events-list-wrapper">
                     <div id="events-list"></div>
@@ -323,16 +339,21 @@ def main():
 
             <!-- 底部栏 -->
             <div class="footer-bar">
-                <span><span class="dot dot-blue"></span>数据已同步</span>
-                <span>筛选结果: {len(filtered_events)} 条</span>
+                <span><span class="dot dot-blue" id="status-dot"></span><span id="status-text">数据已同步</span></span>
+                <span>筛选结果: <span id="footer-count">{len(filtered_events)}</span> 条</span>
                 <span id="update-time">🕐 最后更新: {datetime.now().strftime('%H:%M:%S')}</span>
             </div>
         </div>
 
         <script>
             // ============================================================
-            // 历史记录 - 分页
+            // 历史记录 + WebSocket 实时更新 + 分页
             // ============================================================
+
+            const API_BASE = 'https://zxc-production-f99b.up.railway.app';
+            var ws = null;
+            var reconnectTimer = null;
+            var isConnected = false;
 
             var allEvents = {events_json};
             var currentPage = 1;
@@ -341,6 +362,43 @@ def main():
 
             console.log('📊 加载事件数:', allEvents.length);
 
+            // ============================================================
+            // 状态更新函数
+            // ============================================================
+            function updateConnectionStatus(connected) {{
+                isConnected = connected;
+                var wsStatus = document.getElementById('ws-status');
+                var statusDot = document.getElementById('status-dot');
+                var statusText = document.getElementById('status-text');
+
+                if (connected) {{
+                    if (wsStatus) {{
+                        wsStatus.textContent = '● WebSocket 已连接';
+                        wsStatus.className = 'db-status active';
+                    }}
+                    if (statusDot) {{
+                        statusDot.className = 'dot dot-green';
+                    }}
+                    if (statusText) {{
+                        statusText.textContent = '数据已同步';
+                    }}
+                }} else {{
+                    if (wsStatus) {{
+                        wsStatus.textContent = '● WebSocket 断开';
+                        wsStatus.className = 'db-status inactive';
+                    }}
+                    if (statusDot) {{
+                        statusDot.className = 'dot dot-red';
+                    }}
+                    if (statusText) {{
+                        statusText.textContent = '等待重连...';
+                    }}
+                }}
+            }}
+
+            // ============================================================
+            // 格式化时间
+            // ============================================================
             function formatTime(timestamp) {{
                 if (!timestamp) return '';
                 if (timestamp.length >= 16) {{
@@ -355,6 +413,9 @@ def main():
                 return timestamp;
             }}
 
+            // ============================================================
+            // 渲染事件列表
+            // ============================================================
             function renderEvents() {{
                 var container = document.getElementById('events-list');
                 var paginationContainer = document.getElementById('pagination-container');
@@ -406,10 +467,14 @@ def main():
                     ${{itemsHtml}}
                 `;
 
-                document.getElementById('total-count').textContent = total;
+                document.getElementById('total-count-label').textContent = total;
+                document.getElementById('footer-count').textContent = total;
                 buildPagination(total);
             }}
 
+            // ============================================================
+            // 分页控件
+            // ============================================================
             function buildPagination(total) {{
                 var container = document.getElementById('pagination-container');
                 if (!container) return;
@@ -478,70 +543,107 @@ def main():
             window.goToPage = goToPage;
             window.changePageSize = changePageSize;
 
+            // ============================================================
+            // 从数据库加载最新事件
+            // ============================================================
+            function loadEventsFromDB() {{
+                fetch(API_BASE + '/api/events/all')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'success') {{
+                            console.log('📊 从数据库加载事件，共', data.total, '条');
+                            allEvents = data.events || [];
+                            // 保持当前页
+                            if (currentPage > Math.ceil(allEvents.length / pageSize)) {{
+                                currentPage = 1;
+                            }}
+                            renderEvents();
+                            document.getElementById('update-time').textContent = '🕐 最后更新: ' + new Date().toLocaleTimeString('zh-CN');
+                        }}
+                    }})
+                    .catch(error => console.error('加载事件失败:', error));
+            }}
+
+            // ============================================================
+            // WebSocket 连接
+            // ============================================================
+            function connectWebSocket() {{
+                try {{
+                    console.log('🔗 连接 WebSocket...');
+                    ws = new WebSocket('wss://zxc-production-f99b.up.railway.app/ws/family');
+
+                    ws.onopen = function() {{
+                        console.log('✅ WebSocket 已连接');
+                        updateConnectionStatus(true);
+                    }};
+
+                    ws.onmessage = function(event) {{
+                        try {{
+                            const data = JSON.parse(event.data);
+                            console.log('📩 收到:', data.type);
+
+                            if (data.type === 'alert') {{
+                                fetch(API_BASE + '/api/report', {{
+                                    method: 'POST',
+                                    headers: {{'Content-Type': 'application/json'}},
+                                    body: JSON.stringify(data)
+                                }})
+                                .then(response => response.json())
+                                .then(result => {{
+                                    console.log('💾 保存到数据库:', result);
+                                    loadEventsFromDB();
+                                }})
+                                .catch(error => console.error('保存失败:', error));
+                            }}
+                        }} catch(e) {{
+                            console.error('解析消息失败:', e);
+                        }}
+                    }};
+
+                    ws.onclose = function() {{
+                        console.log('❌ WebSocket 断开');
+                        updateConnectionStatus(false);
+                        if (reconnectTimer) clearTimeout(reconnectTimer);
+                        reconnectTimer = setTimeout(connectWebSocket, 3000);
+                    }};
+
+                    ws.onerror = function(error) {{
+                        console.error('WebSocket 错误:', error);
+                    }};
+
+                }} catch(e) {{
+                    console.error('连接失败:', e);
+                    updateConnectionStatus(false);
+                    if (reconnectTimer) clearTimeout(reconnectTimer);
+                    reconnectTimer = setTimeout(connectWebSocket, 3000);
+                }}
+            }}
+
+            // ============================================================
+            // 启动
+            // ============================================================
+
             renderEvents();
-// ============================================================
-// WebSocket 实时更新 - 全部数据
-// ============================================================
 
-const WS_URL = 'wss://zxc-production-f99b.up.railway.app/ws/family';
-let ws = null;
-let reconnectTimer = null;
+            updateConnectionStatus(false);
 
-function connectWebSocket() {
-    try {
-        console.log('🔗 History 连接 WebSocket...');
-        ws = new WebSocket(WS_URL);
-        
-        ws.onopen = function() {
-            console.log('✅ History WebSocket 已连接');
-        };
-        
-        ws.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'new_alert') {
-                    console.log('📩 History 收到新告警，更新数据');
-                    fetchAllData();
-                }
-            } catch(e) {
-                console.error('解析失败:', e);
-            }
-        };
-        
-        ws.onclose = function() {
-            console.log('❌ History WebSocket 断开，3秒后重连');
-            if (reconnectTimer) clearTimeout(reconnectTimer);
-            reconnectTimer = setTimeout(connectWebSocket, 3000);
-        };
-        
-        ws.onerror = function(error) {
-            console.error('WebSocket 错误:', error);
-        };
-        
-    } catch(e) {
-        console.error('连接失败:', e);
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connectWebSocket, 5000);
-    }
-}
+            setTimeout(connectWebSocket, 500);
 
-function fetchAllData() {
-    fetch('https://zxc-production-f99b.up.railway.app/api/events/last_days/30')
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                allEvents = data.events || [];
-                console.log('📊 History 更新数据，共', allEvents.length, '条');
-                renderEvents();
-            }
-        })
-        .catch(err => console.error('获取数据失败:', err));
-}
+            setInterval(function() {{
+                loadEventsFromDB();
+            }}, 5000);
 
-setTimeout(connectWebSocket, 500);
-console.log('🔄 History 页面已启动 WebSocket 实时更新');
+            document.addEventListener('visibilitychange', function() {{
+                if (!document.hidden) {{
+                    console.log('👁️ 页面可见，刷新数据');
+                    loadEventsFromDB();
+                    if (!isConnected) {{
+                        connectWebSocket();
+                    }}
+                }}
+            }});
 
-            console.log('🚀 History页面 启动完成（分页 + 筛选）');
+            console.log('🚀 History页面 启动完成 (WebSocket + MySQL + 分页)');
         </script>
     </body>
     </html>

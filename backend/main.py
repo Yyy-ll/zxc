@@ -193,6 +193,154 @@ async def get_events_last_days(days: int):
         })
 
 
+# ============================================================
+# 【新增】获取所有事件（近15天）- 给 history.py 使用
+# ============================================================
+@app.get("/api/events/all")
+async def get_all_events():
+    """获取近15天所有事件"""
+    from datetime import datetime, timedelta
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM events 
+            WHERE timestamp >= DATE('now', '-15 days')
+            ORDER BY timestamp DESC
+        ''')
+        rows = cursor.fetchall()
+
+        events = []
+        for row in rows:
+            event = dict(row)
+            # 确保 timestamp 是字符串格式
+            if 'timestamp' in event and isinstance(event['timestamp'], str):
+                # 已经是字符串，保留
+                pass
+            events.append(event)
+
+        return JSONResponse({
+            'status': 'success',
+            'total': len(events),
+            'events': events
+        })
+
+
+# ============================================================
+# 【新增】获取趋势数据 - 给 trend.py 使用
+# ============================================================
+@app.get("/api/events/trend")
+async def get_trend_data():
+    """获取近7天风险趋势数据"""
+    from datetime import datetime, timedelta
+    import random
+    from collections import Counter
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM events 
+            WHERE timestamp >= DATE('now', '-7 days')
+            ORDER BY timestamp ASC
+        ''')
+        rows = cursor.fetchall()
+
+        events = [dict(row) for row in rows]
+
+        # 按天统计
+        day_count = {}
+        for e in events:
+            timestamp = e.get('timestamp', '')
+            if timestamp:
+                try:
+                    # 解析时间字符串
+                    if isinstance(timestamp, str):
+                        # 尝试解析多种格式
+                        if 'T' in timestamp:
+                            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        else:
+                            dt = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                        date_key = dt.strftime('%m-%d')
+                        day_count[date_key] = day_count.get(date_key, 0) + 1
+                except:
+                    continue
+
+        # 生成趋势数据
+        today = datetime.now()
+        trend_data = []
+        for i in range(6, -1, -1):
+            date = today - timedelta(days=i)
+            date_key = date.strftime('%m-%d')
+            count = day_count.get(date_key, 0)
+            score = min(100, count * 8 + random.randint(-5, 15))
+            score = max(0, score)
+            trend_data.append({
+                'date': date_key,
+                'score': score,
+                'count': count
+            })
+
+        return JSONResponse({
+            'status': 'success',
+            'trend_data': trend_data
+        })
+
+
+# ============================================================
+# 【新增】获取心理健康数据 - 给 health.py 使用
+# ============================================================
+@app.get("/api/events/health")
+async def get_health_data():
+    """获取近7天心理健康趋势数据"""
+    from datetime import datetime, timedelta
+    import random
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM events 
+            WHERE timestamp >= DATE('now', '-7 days')
+            ORDER BY timestamp ASC
+        ''')
+        rows = cursor.fetchall()
+
+        events = [dict(row) for row in rows]
+
+        # 按天统计
+        day_count = {}
+        for e in events:
+            timestamp = e.get('timestamp', '')
+            if timestamp:
+                try:
+                    if isinstance(timestamp, str):
+                        if 'T' in timestamp:
+                            dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                        else:
+                            dt = datetime.strptime(timestamp, '%Y-%m-%d %H:%M:%S')
+                        date_key = dt.strftime('%m-%d')
+                        day_count[date_key] = day_count.get(date_key, 0) + 1
+                except:
+                    continue
+
+        # 生成心理健康数据
+        today = datetime.now()
+        health_data = []
+        for i in range(6, -1, -1):
+            date = today - timedelta(days=i)
+            date_key = date.strftime('%m-%d')
+            count = day_count.get(date_key, 0)
+            index = max(0, min(100, 100 - count * 5 + random.randint(-10, 15)))
+            health_data.append({
+                'date': date_key,
+                'index': index,
+                'count': count
+            })
+
+        return JSONResponse({
+            'status': 'success',
+            'health_data': health_data
+        })
+
 @app.get("/api/feedback/user/{username}")
 async def get_user_feedback(username: str):
     """获取用户的反馈"""

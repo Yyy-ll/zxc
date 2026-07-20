@@ -5,11 +5,13 @@ from datetime import datetime, timedelta
 from utils.auth import require_auth, get_current_user
 from utils.db import get_events_last_days
 import random
+import requests
 
 
 @require_auth
 def main():
     user = get_current_user()
+    API_BASE = 'https://zxc-production-f99b.up.railway.app'
 
     st.markdown("""
     <div style="display: flex; align-items: center; gap: 12px; padding: 16px 0 12px 0; border-bottom: 3px solid #f97316; margin-bottom: 16px;">
@@ -85,20 +87,9 @@ def main():
         change = 0
         suggestion = "暂无数据，请等待系统收集更多信息。"
 
-    # ============================================================
-    # 序列化 health_data 为 JSON，避免语法错误
-    # ============================================================
+    # 将健康数据转为 JSON 传递给前端
+    health_data_json = json.dumps(health_data, default=str, ensure_ascii=False)
 
-    health_data_serializable = []
-    for item in health_data:
-        health_data_serializable.append({
-            'date': item['date'],
-            'index': item['index'],
-            'count': item['count']
-        })
-
-    health_data_json = json.dumps(health_data_serializable, ensure_ascii=False, default=str)
-    health_data_json_safe = json.dumps(health_data_json)  # 安全转义
     st.components.v1.html(f"""
     <!DOCTYPE html>
     <html>
@@ -202,6 +193,8 @@ def main():
                 margin-right: 6px;
             }}
             .dot-blue {{ background: #3b82f6; }}
+            .dot-green {{ background: #22c55e; }}
+            .dot-red {{ background: #ef4444; }}
 
             .chart-container {{
                 width: 100%;
@@ -220,6 +213,7 @@ def main():
             }}
             .db-status.active {{ background: #dcfce7; color: #166534; }}
             .db-status.inactive {{ background: #fee2e2; color: #991b1b; }}
+            .db-status.waiting {{ background: #fef3c7; color: #92400e; }}
 
             .health-indicators {{
                 display: grid;
@@ -246,15 +240,15 @@ def main():
                     <div class="progress-bar"><div class="progress-fill progress-orange" style="width: {current_index}%;"></div></div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number {'stat-number-green' if change >= 0 else 'stat-number-red'}">{'+' if change >= 0 else ''}{change}</div>
+                    <div class="stat-number {'stat-number-green' if change >= 0 else 'stat-number-red'}" id="change-value">{'+' if change >= 0 else ''}{change}</div>
                     <div class="stat-label">较上周变化</div>
                 </div>
                 <div class="stat-card">
-                    <span class="status-badge {status_class}" style="font-size: 16px;">{status}</span>
+                    <span class="status-badge {status_class}" id="status-badge" style="font-size: 16px;">{status}</span>
                     <div class="stat-label" style="margin-top: 6px;">💡 建议关注</div>
                 </div>
                 <div class="stat-card">
-                    <div class="stat-number stat-number-orange">{len(events_7days)}</div>
+                    <div class="stat-number stat-number-orange" id="total-events">{len(events_7days)}</div>
                     <div class="stat-label">近7天事件</div>
                 </div>
             </div>
@@ -264,7 +258,8 @@ def main():
                 <div class="card-title">
                     <span>📊 近7天心理健康趋势</span>
                     <span style="font-size:13px;color:#94a3b8;font-weight:400;">
-                        当前状态: <span class="status-badge {status_class}" style="font-size:12px;">{status}</span>
+                        当前状态: <span class="status-badge {status_class}" id="status-badge-small" style="font-size:12px;">{status}</span>
+                        &nbsp;|&nbsp; <span class="db-status active" id="ws-status">● WebSocket 已连接</span>
                     </span>
                 </div>
                 <div class="chart-container">
@@ -280,7 +275,7 @@ def main():
 
             <!-- 底部栏 -->
             <div class="footer-bar">
-                <span><span class="dot dot-blue"></span>心理监测运行中</span>
+                <span><span class="dot dot-blue" id="status-dot"></span><span id="status-text">心理监测运行中</span></span>
                 <span>📊 数据更新: {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
                 <span id="update-time">🕐 最后更新: {datetime.now().strftime('%H:%M:%S')}</span>
             </div>
@@ -288,12 +283,53 @@ def main():
 
         <script>
             // ============================================================
-            // 心理健康趋势图
+            // 心理健康趋势图 + WebSocket 实时更新
             // ============================================================
 
+            const API_BASE = 'https://zxc-production-f99b.up.railway.app';
+            var ws = null;
+            var reconnectTimer = null;
+            var isConnected = false;
             var healthChart = null;
-            var healthData = JSON.parse({health_data_json_safe});
+            var healthData = {health_data_json};
 
+            // ============================================================
+            // 状态更新函数
+            // ============================================================
+            function updateConnectionStatus(connected) {{
+                isConnected = connected;
+                var wsStatus = document.getElementById('ws-status');
+                var statusDot = document.getElementById('status-dot');
+                var statusText = document.getElementById('status-text');
+
+                if (connected) {{
+                    if (wsStatus) {{
+                        wsStatus.textContent = '● WebSocket 已连接';
+                        wsStatus.className = 'db-status active';
+                    }}
+                    if (statusDot) {{
+                        statusDot.className = 'dot dot-green';
+                    }}
+                    if (statusText) {{
+                        statusText.textContent = '心理监测运行中';
+                    }}
+                }} else {{
+                    if (wsStatus) {{
+                        wsStatus.textContent = '● WebSocket 断开';
+                        wsStatus.className = 'db-status inactive';
+                    }}
+                    if (statusDot) {{
+                        statusDot.className = 'dot dot-red';
+                    }}
+                    if (statusText) {{
+                        statusText.textContent = '等待重连...';
+                    }}
+                }}
+            }}
+
+            // ============================================================
+            // 初始化图表
+            // ============================================================
             function initChart() {{
                 var ctx = document.getElementById('healthChart').getContext('2d');
                 var labels = healthData.map(d => d.date);
@@ -400,111 +436,162 @@ def main():
                 }});
             }}
 
+            // ============================================================
+            // 从数据库加载最新健康数据
+            // ============================================================
+            function loadHealthData() {{
+                fetch(API_BASE + '/api/events/health')
+                    .then(response => response.json())
+                    .then(data => {{
+                        if (data.status === 'success' && data.health_data) {{
+                            var newData = data.health_data;
+                            var labels = newData.map(d => d.date);
+                            var indices = newData.map(d => d.index);
+                            var counts = newData.map(d => d.count);
+
+                            if (healthChart) {{
+                                healthChart.data.labels = labels;
+                                healthChart.data.datasets[0].data = indices;
+                                healthChart.data.datasets[1].data = counts;
+                                healthChart.data.datasets[0].pointBackgroundColor = indices.map(v => 
+                                    v >= 70 ? '#22c55e' : v >= 45 ? '#f97316' : '#ef4444'
+                                );
+                                healthChart.update();
+                            }}
+
+                            // 更新统计卡片
+                            if (indices.length > 0) {{
+                                var lastIndex = indices[indices.length - 1];
+                                var indexEl = document.getElementById('health-index');
+                                if (indexEl) indexEl.textContent = lastIndex;
+                                var progressEl = document.querySelector('.progress-fill');
+                                if (progressEl) progressEl.style.width = lastIndex + '%';
+
+                                // 更新状态
+                                var statusEl = document.getElementById('status-badge');
+                                var statusSmallEl = document.getElementById('status-badge-small');
+                                var statusClass, statusText;
+                                if (lastIndex >= 70) {{
+                                    statusClass = 'status-safe';
+                                    statusText = '正常';
+                                }} else if (lastIndex >= 45) {{
+                                    statusClass = 'status-warning';
+                                    statusText = '轻度关注';
+                                }} else {{
+                                    statusClass = 'status-danger';
+                                    statusText = '需要关注';
+                                }}
+                                if (statusEl) {{
+                                    statusEl.className = 'status-badge ' + statusClass;
+                                    statusEl.textContent = statusText;
+                                }}
+                                if (statusSmallEl) {{
+                                    statusSmallEl.className = 'status-badge ' + statusClass;
+                                    statusSmallEl.textContent = statusText;
+                                }}
+
+                                // 更新事件总数
+                                var totalEvents = counts.reduce((a, b) => a + b, 0);
+                                var totalEl = document.getElementById('total-events');
+                                if (totalEl) totalEl.textContent = totalEvents;
+
+                                // 更新变化值
+                                if (indices.length >= 2) {{
+                                    var change = indices[indices.length - 1] - indices[indices.length - 2];
+                                    var changeEl = document.getElementById('change-value');
+                                    if (changeEl) {{
+                                        changeEl.textContent = (change >= 0 ? '+' : '') + change;
+                                        changeEl.className = 'stat-number ' + (change >= 0 ? 'stat-number-green' : 'stat-number-red');
+                                    }}
+                                }}
+                            }}
+
+                            document.getElementById('update-time').textContent = '🕐 最后更新: ' + new Date().toLocaleTimeString('zh-CN');
+                        }}
+                    }})
+                    .catch(error => console.error('加载健康数据失败:', error));
+            }}
+
+            // ============================================================
+            // WebSocket 连接
+            // ============================================================
+            function connectWebSocket() {{
+                try {{
+                    console.log('🔗 连接 WebSocket...');
+                    ws = new WebSocket('wss://zxc-production-f99b.up.railway.app/ws/family');
+
+                    ws.onopen = function() {{
+                        console.log('✅ WebSocket 已连接');
+                        updateConnectionStatus(true);
+                    }};
+
+                    ws.onmessage = function(event) {{
+                        try {{
+                            const data = JSON.parse(event.data);
+                            console.log('📩 收到:', data.type);
+
+                            if (data.type === 'alert') {{
+                                fetch(API_BASE + '/api/report', {{
+                                    method: 'POST',
+                                    headers: {{'Content-Type': 'application/json'}},
+                                    body: JSON.stringify(data)
+                                }})
+                                .then(response => response.json())
+                                .then(result => {{
+                                    console.log('💾 保存到数据库:', result);
+                                    loadHealthData();
+                                }})
+                                .catch(error => console.error('保存失败:', error));
+                            }}
+                        }} catch(e) {{
+                            console.error('解析消息失败:', e);
+                        }}
+                    }};
+
+                    ws.onclose = function() {{
+                        console.log('❌ WebSocket 断开');
+                        updateConnectionStatus(false);
+                        if (reconnectTimer) clearTimeout(reconnectTimer);
+                        reconnectTimer = setTimeout(connectWebSocket, 3000);
+                    }};
+
+                    ws.onerror = function(error) {{
+                        console.error('WebSocket 错误:', error);
+                    }};
+
+                }} catch(e) {{
+                    console.error('连接失败:', e);
+                    updateConnectionStatus(false);
+                    if (reconnectTimer) clearTimeout(reconnectTimer);
+                    reconnectTimer = setTimeout(connectWebSocket, 3000);
+                }}
+            }}
+
+            // ============================================================
             // 启动
+            // ============================================================
+
             initChart();
-// ============================================================
-// WebSocket 实时更新 - 近7天数据
-// ============================================================
 
-const WS_URL = 'wss://zxc-production-f99b.up.railway.app/ws/family';
-let ws = null;
-let reconnectTimer = null;
+            updateConnectionStatus(false);
 
-function connectWebSocket() {
-    try {
-        console.log('🔗 Health 连接 WebSocket...');
-        ws = new WebSocket(WS_URL);
-        
-        ws.onopen = function() {
-            console.log('✅ Health WebSocket 已连接');
-        };
-        
-        ws.onmessage = function(event) {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === 'new_alert') {
-                    console.log('📩 Health 收到新告警，更新数据');
-                    fetchLast7DaysData();
-                }
-            } catch(e) {
-                console.error('解析失败:', e);
-            }
-        };
-        
-        ws.onclose = function() {
-            console.log('❌ Health WebSocket 断开，3秒后重连');
-            if (reconnectTimer) clearTimeout(reconnectTimer);
-            reconnectTimer = setTimeout(connectWebSocket, 3000);
-        };
-        
-        ws.onerror = function(error) {
-            console.error('WebSocket 错误:', error);
-        };
-        
-    } catch(e) {
-        console.error('连接失败:', e);
-        if (reconnectTimer) clearTimeout(reconnectTimer);
-        reconnectTimer = setTimeout(connectWebSocket, 5000);
-    }
-}
+            setTimeout(connectWebSocket, 500);
 
-function fetchLast7DaysData() {
-    fetch('https://zxc-production-f99b.up.railway.app/api/events/last_days/7')
-        .then(res => res.json())
-        .then(data => {
-            if (data.status === 'success') {
-                const events = data.events || [];
-                console.log('📊 Health 更新近7天数据，共', events.length, '条');
-                updateHealthChart(events);
-            }
-        })
-        .catch(err => console.error('获取数据失败:', err));
-}
+            setInterval(function() {{
+                loadHealthData();
+            }}, 10000);
 
-function updateHealthChart(events) {
-    // 计算每日事件数量
-    const dayCount = {};
-    events.forEach(e => {
-        let dateKey = '未知';
-        if (e.timestamp) {
-            try {
-                const d = new Date(e.timestamp);
-                dateKey = (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
-            } catch {}
-        }
-        dayCount[dateKey] = (dayCount[dateKey] || 0) + 1;
-    });
-    
-    // 生成近7天数据
-    const today = new Date();
-    const labels = [];
-    const indices = [];
-    const counts = [];
-    
-    for (let i = 6; i >= 0; i--) {
-        const d = new Date(today);
-        d.setDate(d.getDate() - i);
-        const dateKey = (d.getMonth() + 1).toString().padStart(2, '0') + '-' + d.getDate().toString().padStart(2, '0');
-        labels.push(dateKey);
-        const count = dayCount[dateKey] || 0;
-        counts.push(count);
-        const index = Math.max(0, Math.min(100, 100 - count * 5 + Math.floor(Math.random() * 15 - 5)));
-        indices.push(index);
-    }
-    
-    // 更新图表
-    if (window.healthChart) {
-        window.healthChart.data.labels = labels;
-        window.healthChart.data.datasets[0].data = indices;
-        window.healthChart.data.datasets[1].data = counts;
-        window.healthChart.update();
-    }
-}
+            document.addEventListener('visibilitychange', function() {{
+                if (!document.hidden) {{
+                    console.log('👁️ 页面可见，刷新数据');
+                    loadHealthData();
+                    if (!isConnected) {{
+                        connectWebSocket();
+                    }}
+                }}
+            }});
 
-setTimeout(connectWebSocket, 500);
-console.log('🔄 Health 页面已启动 WebSocket 实时更新');
-
-            console.log('🚀 Health页面 启动完成');
+            console.log('🚀 Health页面 启动完成 (WebSocket + MySQL)');
         </script>
     </body>
     </html>
