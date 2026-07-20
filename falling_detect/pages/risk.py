@@ -847,7 +847,7 @@ def main():
                             console.log('📩 收到:', data.type);
 
                             if (data.type === 'alert') {{
-                                fetch(API_BASE + '/api/save_alert', {{
+                                fetch(API_BASE + '/api/report', {{
                                     method: 'POST',
                                     headers: {{'Content-Type': 'application/json'}},
                                     body: JSON.stringify(data)
@@ -888,7 +888,7 @@ def main():
             // 从数据库加载事件
             // ============================================================
             function loadEventsFromDB() {{
-                fetch(API_BASE + '/api/get_today_events')
+                fetch(API_BASE + '/api/events/today')
                 .then(response => response.json())
                 .then(data => {{
                     if (data.status === 'success') {{
