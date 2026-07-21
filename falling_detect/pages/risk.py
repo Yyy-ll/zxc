@@ -19,7 +19,7 @@ def main():
     """, unsafe_allow_html=True)
 
     # ============================================================
-    # 【关键】从 MySQL 加载今天的数据
+    # 【关键】从 Railway 后端 API 加载今天的数据
     # ============================================================
     events_raw = get_today_events()
     stats = get_event_stats()
@@ -258,7 +258,6 @@ def main():
             .db-status.inactive {{ background: #fee2e2; color: #991b1b; }}
             .db-status.waiting {{ background: #fef3c7; color: #92400e; }}
 
-            /* 分页样式 */
             .pagination-container {{
                 display: flex;
                 align-items: center;
@@ -447,7 +446,7 @@ def main():
             <!-- 当天风险趋势 -->
             <div class="content-card">
                 <div class="card-title">
-                    <span>📊 今日风险趋势（小时级）</span>
+                    <span>📊 今日风险趋势 </span>
                     <span style="font-size:13px;color:#94a3b8;font-weight:400;">
                         风险等级: <span style="color:{'#ef4444' if risk_level == '高' else '#f97316' if risk_level == '中' else '#22c55e'};font-weight:600;">{risk_level}</span>
                         &nbsp;|&nbsp; 当前事件: <span style="font-weight:600;">{len(events)}</span>
@@ -459,7 +458,7 @@ def main():
                 <div class="chart-legend">
                     <span class="item"><span class="dot orange"></span> 风险评分</span>
                     <span class="item"><span class="dot blue"></span> 事件数量</span>
-                    <span class="item">📌 当前时间: <span id="current-time-label" style="font-weight:600;color:#1e293b;">{datetime.now().strftime('%H:%M')}</span></span>
+                    <span class="item">📌 当前时间: <span id="current-time-label" style="font-weight:600;color:#1e293b;">--:--</span></span>
                 </div>
             </div>
 
@@ -467,27 +466,25 @@ def main():
             <div class="footer-bar">
                 <span><span class="dot dot-green" id="status-dot"></span><span id="status-text-footer">系统运行正常</span></span>
                 <span id="device-status">📷 在线  ⌚ 在线  🎤 在线  💡 在线</span>
-                <span id="update-time">🕐 最后更新: {datetime.now().strftime('%H:%M:%S')}</span>
+                <span id="update-time">🕐 最后更新: --:--:--</span>
             </div>
         </div>
 
         <script>
             // ============================================================
-            // WebSocket + MySQL 持久化 + 分页 + 状态管理
+            // WebSocket + 分页 + 状态管理
             // ============================================================
 
             const API_BASE = 'https://zxc-production-f99b.up.railway.app';
             var ws = null;
             var reconnectTimer = null;
             var isConnected = false;
-            var currentRiskScore = '--';
             var allEvents = [];
             var currentPage = 1;
             var pageSize = 10;
             var totalPages = 1;
             var trendChart = null;
             var currentHourData = {json.dumps(today_trend)};
-            var currentHour = {datetime.now().hour};
 
             // 初始数据
             var initialEvents = {events_json};
@@ -495,12 +492,36 @@ def main():
             allEvents = initialEvents;
 
             // ============================================================
+            // 更新本地时间（显示用户浏览器时间）
+            // ============================================================
+            function updateLocalTime() {{
+                var now = new Date();
+                var h = String(now.getHours()).padStart(2, '0');
+                var m = String(now.getMinutes()).padStart(2, '0');
+                var s = String(now.getSeconds()).padStart(2, '0');
+
+                var timeLabel = document.getElementById('current-time-label');
+                if (timeLabel) {{
+                    timeLabel.textContent = h + ':' + m;
+                }}
+
+                var updateTimeEl = document.getElementById('update-time');
+                if (updateTimeEl) {{
+                    updateTimeEl.textContent = '🕐 最后更新: ' + h + ':' + m + ':' + s;
+                }}
+            }}
+
+            // 立即更新
+            updateLocalTime();
+            // 每10秒更新一次
+            setInterval(updateLocalTime, 10000);
+
+            // ============================================================
             // 状态更新函数
             // ============================================================
             function updateConnectionStatus(connected) {{
                 isConnected = connected;
 
-                // 更新状态卡片
                 var statusText = document.getElementById('status-text');
                 var statusDot = document.getElementById('status-dot');
                 var statusFooter = document.getElementById('status-text-footer');
@@ -823,9 +844,16 @@ def main():
             window.changePageSize = changePageSize;
 
             function updateEvents(events) {{
-                allEvents = events || [];
-                currentPage = 1;
-                renderEvents();
+                 allEvents = events || [];
+    var totalPages = Math.ceil(allEvents.length / pageSize);
+    if (currentPage > totalPages) {{
+        if (totalPages > 0) {{
+            currentPage = totalPages;
+        }} else {{
+            currentPage = 1;
+        }}
+    }}
+    renderEvents();
             }}
 
             // ============================================================
@@ -846,19 +874,17 @@ def main():
                             const data = JSON.parse(event.data);
                             console.log('📩 收到:', data.type);
 
-                            if (data.type === 'alert') {{
-                                fetch(API_BASE + '/api/report', {{
-                                    method: 'POST',
-                                    headers: {{'Content-Type': 'application/json'}},
-                                    body: JSON.stringify(data)
-                                }})
-                                .then(response => response.json())
-                                .then(result => {{
-                                    console.log('💾 保存到数据库:', result);
-                                    loadEventsFromDB();
-                                    updateChartWithNewEvent();
-                                }})
-                                .catch(error => console.error('保存失败:', error));
+                            // 连接确认消息，不做特殊处理
+                            if (data.type === 'connected') {{
+                                console.log('✅ 已连接到服务器');
+                                return;
+                            }}
+
+                            // ✅ 收到新告警通知 → 只刷新数据，不再上报
+                            if (data.type === 'new_alert') {{
+                                console.log('🔄 收到新告警通知，刷新数据');
+                                loadEventsFromDB();
+                                updateChartWithNewEvent();
                             }}
                         }} catch(e) {{
                             console.error('解析消息失败:', e);
@@ -894,7 +920,6 @@ def main():
                     if (data.status === 'success') {{
                         console.log('📊 从数据库加载事件，共', data.total, '条');
                         updateEvents(data.events);
-                        document.getElementById('update-time').textContent = '🕐 最后更新: ' + new Date().toLocaleTimeString('zh-CN');
                     }}
                 }})
                 .catch(error => console.error('加载事件失败:', error));
@@ -916,7 +941,7 @@ def main():
             // 连接 WebSocket
             setTimeout(connectWebSocket, 500);
 
-            // 定时刷新
+            // 定时刷新（每5秒）
             setInterval(function() {{
                 loadEventsFromDB();
             }}, 5000);
@@ -925,7 +950,6 @@ def main():
                 if (!document.hidden) {{
                     console.log('👁️ 页面可见，刷新数据');
                     loadEventsFromDB();
-                    // 如果 WebSocket 断开，尝试重连
                     if (!isConnected) {{
                         connectWebSocket();
                     }}
