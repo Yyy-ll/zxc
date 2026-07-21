@@ -467,12 +467,12 @@ pg = st.navigation(
 # ===== 在st.navigation之后添加底部按钮 =====
 st.sidebar.markdown("""
  <div class="sidebar-footer-actions">
-     <button class="btn-call btn-call-family" onclick="window.location.href='tel:17737928701'">
+     <a href="tel:17737928701" class="btn-call btn-call-family" style="text-decoration:none;display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 16px;border-radius:10px;font-size:15px;font-weight:600;width:100%;background:linear-gradient(135deg,#2563eb,#3b82f6);color:white;border:none;cursor:pointer;transition:all 0.3s ease;">
          <span class="btn-icon">📞</span> 联系老人
-     </button>
-     <button class="btn-call btn-call-emergency" onclick="window.location.href='tel:17737928701'">
+     </a>
+     <a href="tel:17737928701" class="btn-call btn-call-emergency" style="text-decoration:none;display:flex;align-items:center;justify-content:center;gap:10px;padding:14px 16px;border-radius:10px;font-size:15px;font-weight:600;width:100%;background:linear-gradient(135deg,#ef4444,#dc2626);color:white;border:none;cursor:pointer;transition:all 0.3s ease;animation:pulse-ring 2s infinite;">
          <span class="btn-icon">🆘</span> 紧急求助
-     </button>
+     </a>
  </div>
  """, unsafe_allow_html=True)
 
