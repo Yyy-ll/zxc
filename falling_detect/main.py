@@ -478,6 +478,7 @@ def main_app():
      }
      .block-container {
          padding: 0 !important;
+         padding-top: 20px !important;
          max-width: 100% !important;
      }
      .stApp {

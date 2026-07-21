@@ -26,7 +26,7 @@ def main():
             return obj
 
     all_feedbacks = get_feedback_list(limit=100)
-    current_username = user['username']
+    current_username = user.get('phone') or user.get('username') or user.get('name', 'unknown')
     user_feedbacks = []
     if all_feedbacks:
         user_feedbacks = [fb for fb in all_feedbacks if fb.get('username') == current_username]
