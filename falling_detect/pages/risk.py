@@ -5,7 +5,13 @@ from datetime import datetime, timedelta
 from utils.auth import require_auth, get_current_user
 from utils.db import get_today_events, get_event_stats
 import random
+from datetime import datetime, timezone, timedelta
 
+# 北京时间时区
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+def get_beijing_now():
+    return datetime.now(BEIJING_TZ)
 
 @require_auth
 def main():
@@ -55,7 +61,8 @@ def main():
                 pass
 
     today_trend = []
-    current_hour = datetime.now().hour
+    beijing_now = get_beijing_now()
+    current_hour = beijing_now.hour
     for h in range(24):
         hour_key = f"{h:02d}:00"
         count = hour_count.get(hour_key, 0)

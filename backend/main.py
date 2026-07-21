@@ -4,13 +4,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import sqlite3
 import json
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Any
 import os
 from contextlib import contextmanager
 import uvicorn
 
 app = FastAPI(title="银龄安居 - 跌倒检测后端")
+
+# ============================================================
+# 北京时间时区配置
+# ============================================================
+BEIJING_TZ = timezone(timedelta(hours=8))
+
+def get_beijing_time():
+    """获取北京时间字符串"""
+    return datetime.now(BEIJING_TZ).strftime('%Y-%m-%d %H:%M:%S')
+
+def get_beijing_date():
+    """获取北京时间日期字符串"""
+    return datetime.now(BEIJING_TZ).strftime('%Y-%m-%d')
+
 
 # CORS 配置
 app.add_middleware(
@@ -119,7 +133,8 @@ async def report_event(data: Dict[str, Any]):
         level = data.get('level', '低')
         confidence = data.get('confidence', 0.0)
         source = data.get('source', 'unknown')
-        timestamp = data.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+        # ⚠️ 使用北京时间
+        timestamp = data.get('timestamp', get_beijing_time())
 
         # 保存到数据库
         with get_db() as conn:
@@ -150,7 +165,8 @@ async def report_event(data: Dict[str, Any]):
         return JSONResponse({
             'status': 'success',
             'message': '事件已接收并推送',
-            'event_id': event_id
+            'event_id': event_id,
+            'timestamp': timestamp
         })
 
     except Exception as e:
@@ -159,8 +175,8 @@ async def report_event(data: Dict[str, Any]):
 
 @app.get("/api/events/today")
 async def get_today_events():
-    """获取今天的所有事件"""
-    today = datetime.now().strftime('%Y-%m-%d')
+    """获取今天的所有事件（北京时间）"""
+    today = get_beijing_date()
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -177,9 +193,10 @@ async def get_today_events():
 
 @app.get("/api/events/last_days/{days}")
 async def get_events_last_days(days: int):
-    """获取最近 N 天的事件"""
+    """获取最近 N 天的事件（北京时间）"""
     with get_db() as conn:
         cursor = conn.cursor()
+        # 使用 SQLite 的 datetime 函数，基于存储的时间
         cursor.execute('''
             SELECT * FROM events 
             WHERE timestamp >= DATE('now', ?)
@@ -199,8 +216,6 @@ async def get_events_last_days(days: int):
 @app.get("/api/events/all")
 async def get_all_events():
     """获取近15天所有事件"""
-    from datetime import datetime, timedelta
-
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -213,10 +228,6 @@ async def get_all_events():
         events = []
         for row in rows:
             event = dict(row)
-            # 确保 timestamp 是字符串格式
-            if 'timestamp' in event and isinstance(event['timestamp'], str):
-                # 已经是字符串，保留
-                pass
             events.append(event)
 
         return JSONResponse({
@@ -253,9 +264,7 @@ async def get_trend_data():
             timestamp = e.get('timestamp', '')
             if timestamp:
                 try:
-                    # 解析时间字符串
                     if isinstance(timestamp, str):
-                        # 尝试解析多种格式
                         if 'T' in timestamp:
                             dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
                         else:
@@ -266,10 +275,10 @@ async def get_trend_data():
                     continue
 
         # 生成趋势数据
-        today = datetime.now()
+        beijing_now = datetime.now(BEIJING_TZ)
         trend_data = []
         for i in range(6, -1, -1):
-            date = today - timedelta(days=i)
+            date = beijing_now - timedelta(days=i)
             date_key = date.strftime('%m-%d')
             count = day_count.get(date_key, 0)
             score = min(100, count * 8 + random.randint(-5, 15))
@@ -323,10 +332,10 @@ async def get_health_data():
                     continue
 
         # 生成心理健康数据
-        today = datetime.now()
+        beijing_now = datetime.now(BEIJING_TZ)
         health_data = []
         for i in range(6, -1, -1):
-            date = today - timedelta(days=i)
+            date = beijing_now - timedelta(days=i)
             date_key = date.strftime('%m-%d')
             count = day_count.get(date_key, 0)
             index = max(0, min(100, 100 - count * 5 + random.randint(-10, 15)))
@@ -340,6 +349,7 @@ async def get_health_data():
             'status': 'success',
             'health_data': health_data
         })
+
 
 @app.get("/api/feedback/user/{username}")
 async def get_user_feedback(username: str):
@@ -488,7 +498,7 @@ async def websocket_family(websocket: WebSocket):
         await websocket.send_json({
             'type': 'connected',
             'message': '已连接到银龄安居实时推送',
-            'timestamp': datetime.now().isoformat()
+            'timestamp': datetime.now(BEIJING_TZ).isoformat()
         })
 
         # 保持连接，接收心跳
@@ -527,7 +537,7 @@ async def websocket_feedback(websocket: WebSocket):
 async def health_check():
     return {
         'status': 'healthy',
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': datetime.now(BEIJING_TZ).isoformat(),
         'connections': len(manager.active_connections)
     }
 
