@@ -3,3 +3,4 @@ streamlit-authenticator
 pyyaml
 pandas
 requests
+pyjwt

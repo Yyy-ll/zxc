@@ -577,28 +577,24 @@ def main():
                         updateConnectionStatus(true);
                     }};
 
-                    ws.onmessage = function(event) {{
-                        try {{
-                            const data = JSON.parse(event.data);
-                            console.log('📩 收到:', data.type);
+                   ws.onmessage = function(event) {{
+    try {{
+        const data = JSON.parse(event.data);
+        console.log('📩 收到:', data.type);
 
-                            if (data.type === 'alert') {{
-                                fetch(API_BASE + '/api/report', {{
-                                    method: 'POST',
-                                    headers: {{'Content-Type': 'application/json'}},
-                                    body: JSON.stringify(data)
-                                }})
-                                .then(response => response.json())
-                                .then(result => {{
-                                    console.log('💾 保存到数据库:', result);
-                                    loadEventsFromDB();
-                                }})
-                                .catch(error => console.error('保存失败:', error));
-                            }}
-                        }} catch(e) {{
-                            console.error('解析消息失败:', e);
-                        }}
-                    }};
+        if (data.type === 'connected') {{
+            console.log('✅ 已连接到服务器');
+            return;
+        }}
+
+        if (data.type === 'new_alert') {{
+            console.log('🔄 收到新告警通知，刷新历史数据');
+            loadEventsFromDB();
+        }}
+    }} catch(e) {{
+        console.error('解析消息失败:', e);
+    }}
+}};
 
                     ws.onclose = function() {{
                         console.log('❌ WebSocket 断开');
