@@ -37,7 +37,7 @@ def login_user(phone: str, password: str) -> tuple:
 
 
 def register_user(phone: str, password: str, name: str, role: str, emergency_contact: str = "") -> tuple:
-    """调用后端注册 API"""
+    """调用后端注册 API（注册成功后不自动登录）"""
     try:
         response = requests.post(
             f"{API_BASE}/api/auth/register",
@@ -53,12 +53,8 @@ def register_user(phone: str, password: str, name: str, role: str, emergency_con
         if response.status_code == 200:
             data = response.json()
             if data.get('status') == 'success':
-                user_data = data['data']
-                st.session_state['token'] = user_data['token']
-                st.session_state['user'] = user_data['user']
-                st.session_state['bindings'] = user_data.get('bindings', [])
-                st.session_state['authenticated'] = True
-                return True, "注册成功"
+                # ⭐ 注册成功，不自动登录，只返回成功
+                return True, "注册成功！请登录"
             return False, data.get('message', '注册失败')
         return False, f"请求失败: {response.status_code}"
     except requests.exceptions.ConnectionError:

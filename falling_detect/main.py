@@ -52,7 +52,7 @@ logo_base64 = get_image_base64(str(logo_path)) if logo_path.exists() else None
 # 登录/注册页面（未登录时显示）
 # ============================================================
 def login_page():
-    # 初始化 session_state 控制显示登录还是注册
+    # 初始化 session_state
     if 'show_register' not in st.session_state:
         st.session_state.show_register = False
 
@@ -177,12 +177,21 @@ def login_page():
              color: #64748b;
          }
          .switch-link a {
-             color: #f97316;
+             color: #64748b;
              text-decoration: none;
-             font-weight: 600;
+             font-weight: 400;
              cursor: pointer;
          }
          .switch-link a:hover {
+             color: #f97316;
+             text-decoration: underline;
+         }
+         .switch-link .highlight {
+             color: #f97316;
+             font-weight: 500;
+         }
+         .switch-link .highlight:hover {
+             color: #ea580c;
              text-decoration: underline;
          }
 
@@ -258,7 +267,6 @@ def login_page():
                     placeholder="请输入紧急联系人手机号",
                     help="老人请填写家属手机号，家属请填写老人手机号"
                 )
-                # 注册按钮（蓝色）
                 st.markdown('<div class="register-btn">', unsafe_allow_html=True)
                 reg_submitted = st.form_submit_button("注册", use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -275,7 +283,11 @@ def login_page():
                     else:
                         success, msg = register_user(reg_phone, reg_password, reg_name, reg_role, reg_emergency)
                         if success:
-                            st.success(msg)
+                            st.success("✅ 注册成功！请登录")
+                            # 保存手机号到 session_state，用于登录框自动填入
+                            st.session_state.registered_phone = reg_phone
+                            # 切换到登录界面
+                            st.session_state.show_register = False
                             st.rerun()
                         else:
                             st.error(msg)
@@ -296,9 +308,10 @@ def login_page():
             # ===== 登录界面 =====
             st.markdown('<div class="login-title"><h2>登录</h2><p>输入手机号和密码登录系统</p></div>', unsafe_allow_html=True)
             with st.form("login_form"):
-                phone = st.text_input("手机号", placeholder="请输入手机号", max_chars=11)
+                # 自动填入注册时的手机号
+                default_phone = st.session_state.get('registered_phone', '')
+                phone = st.text_input("手机号", placeholder="请输入手机号", max_chars=11, value=default_phone)
                 password = st.text_input("密码", type="password", placeholder="请输入密码")
-                # 登录按钮（橙色大号居中）
                 st.markdown('<div class="login-btn">', unsafe_allow_html=True)
                 submitted = st.form_submit_button("登录", use_container_width=True)
                 st.markdown('</div>', unsafe_allow_html=True)
@@ -311,6 +324,8 @@ def login_page():
                     else:
                         success, msg = login_user(phone, password)
                         if success:
+                            # 登录成功，清除保存的手机号
+                            st.session_state.registered_phone = ""
                             st.success(msg)
                             st.rerun()
                         else:
@@ -319,7 +334,7 @@ def login_page():
             # 切换到注册（文字链接）
             st.markdown("""
             <div class="switch-link">
-                没有账号？ <a href="#" onclick="document.querySelector('[data-testid=\\'stButton\\'] button').click()">创建一个</a>
+                没有账号？ <a href="#" onclick="document.querySelector('[data-testid=\\'stButton\\'] button').click()"><span class="highlight">创建一个</span></a>
             </div>
             """, unsafe_allow_html=True)
 
